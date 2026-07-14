@@ -1,0 +1,176 @@
+import logging
+from typing import List, Optional
+
+from app.core.volcano_voice_clone_client import VolcanoVoiceCloneClient
+from app.dto.voice_clone_dto import VoiceCloneCreateDTO, VoiceCloneUploadDTO, VoiceCloneTrainDTO
+from app.entity.voice_clone_entity import VoiceCloneEntity
+from app.models.voice_clone_po import VoiceClonePO
+from app.repositories.voice_clone_repository import VoiceCloneRepository
+from app.services.tts_provider_service import TTSProviderService
+
+
+class VoiceCloneService:
+    def __init__(self, repository: VoiceCloneRepository, tts_provider_service: TTSProviderService):
+        self.repository = repository
+        self.tts_provider_service = tts_provider_service
+
+    def create_voice_clone(self, entity: VoiceCloneEntity) -> Optional[VoiceCloneEntity]:
+        """创建声音复刻记录"""
+        existing = self.repository.get_by_name(entity.name, entity.tts_provider_id)
+        if existing:
+            return None
+        
+        existing_speaker = self.repository.get_by_speaker_id(entity.speaker_id)
+        if existing_speaker:
+            raise ValueError(f"音色 ID '{entity.speaker_id}' 已存在")
+        
+        po = VoiceClonePO(**entity.__dict__)
+        res = self.repository.create(po)
+        
+        data = {k: v for k, v in res.__dict__.items() if not k.startswith("_")}
+        return VoiceCloneEntity(**data)
+
+    def get_voice_clone(self, clone_id: int) -> Optional[VoiceCloneEntity]:
+        """根据 ID 查询声音复刻记录"""
+        po = self.repository.get_by_id(clone_id)
+        if not po:
+            return None
+        data = {k: v for k, v in po.__dict__.items() if not k.startswith("_")}
+        return VoiceCloneEntity(**data)
+
+    def get_all_voice_clones(self, tts_provider_id: int) -> List[VoiceCloneEntity]:
+        """查询指定 TTS 提供商下的所有声音复刻记录"""
+        pos = self.repository.get_all_by_tts_provider(tts_provider_id)
+        entities = [
+            VoiceCloneEntity(**{k: v for k, v in po.__dict__.items() if not k.startswith("_")})
+            for po in pos
+        ]
+        return entities
+
+    def upload_and_train(self, dto: VoiceCloneUploadDTO) -> dict:
+        """上传音频并提交训练"""
+        clone = self.repository.get_by_id(dto.clone_id)
+        if not clone:
+            raise ValueError(f"声音复刻记录不存在，ID: {dto.clone_id}")
+        
+        tts_provider = self.tts_provider_service.get_tts_provider(clone.tts_provider_id)
+        if not tts_provider:
+            raise ValueError(f"TTS 提供商不存在，ID: {clone.tts_provider_id}")
+        
+        if not getattr(tts_provider, "provider_type", None) == "volcano":
+            raise ValueError("声音复刻仅支持火山引擎 TTS 提供商")
+        
+        x_api_key = getattr(tts_provider, "x_api_key", None)
+        if not x_api_key:
+            raise ValueError("火山引擎 TTS 提供商的 X-Api-Key 未配置")
+        
+        resource_id = "seed-icl-2.0" if clone.model_type == 4 else "seed-icl-1.0"
+        
+        client = VolcanoVoiceCloneClient(
+            x_api_key=x_api_key,
+            resource_id=resource_id,
+            model_type=clone.model_type,
+        )
+        
+        if dto.reference_path:
+            clone.reference_path = dto.reference_path
+        
+        self.repository.update(clone.id, {"reference_path": clone.reference_path, "status": 1})
+        
+        result = client.upload_audio(
+            speaker_id=clone.speaker_id,
+            audio_path=dto.reference_path,
+            language=clone.language,
+            text=dto.text,
+            enable_denoise=dto.enable_denoise,
+            denoise_model_id=dto.denoise_model_id,
+            enable_mss=dto.enable_mss,
+            enable_crop_by_asr=dto.enable_crop_by_asr,
+        )
+        
+        logging.info("声音复刻音频上传成功，clone_id: %s, speaker_id: %s", clone.id, clone.speaker_id)
+        return result
+
+    def query_training_status(self, clone_id: int) -> dict:
+        """查询训练状态并更新数据库"""
+        clone = self.repository.get_by_id(clone_id)
+        if not clone:
+            raise ValueError(f"声音复刻记录不存在，ID: {clone_id}")
+        
+        tts_provider = self.tts_provider_service.get_tts_provider(clone.tts_provider_id)
+        if not tts_provider:
+            raise ValueError(f"TTS 提供商不存在，ID: {clone.tts_provider_id}")
+        
+        x_api_key = getattr(tts_provider, "x_api_key", None)
+        if not x_api_key:
+            raise ValueError("火山引擎 TTS 提供商的 X-Api-Key 未配置")
+        
+        resource_id = "seed-icl-2.0" if clone.model_type == 4 else "seed-icl-1.0"
+        
+        client = VolcanoVoiceCloneClient(
+            x_api_key=x_api_key,
+            resource_id=resource_id,
+            model_type=clone.model_type,
+        )
+        
+        result = client.query_status(clone.speaker_id)
+        status = result.get("status", 0)
+        
+        update_data = {
+            "status": status,
+            "version": result.get("version"),
+            "demo_audio_url": result.get("demo_audio"),
+        }
+        self.repository.update(clone_id, update_data)
+        
+        return result
+
+    def train_and_wait(self, dto: VoiceCloneTrainDTO) -> dict:
+        """上传音频并等待训练完成"""
+        self.upload_and_train(VoiceCloneUploadDTO(
+            clone_id=dto.clone_id,
+            reference_path=dto.reference_path,
+            text=dto.text,
+            enable_denoise=dto.enable_denoise,
+            denoise_model_id=dto.denoise_model_id,
+            enable_mss=dto.enable_mss,
+            enable_crop_by_asr=dto.enable_crop_by_asr,
+        ))
+        
+        clone = self.repository.get_by_id(dto.clone_id)
+        tts_provider = self.tts_provider_service.get_tts_provider(clone.tts_provider_id)
+        x_api_key = getattr(tts_provider, "x_api_key", None)
+        resource_id = "seed-icl-2.0" if clone.model_type == 4 else "seed-icl-1.0"
+        
+        client = VolcanoVoiceCloneClient(
+            x_api_key=x_api_key,
+            resource_id=resource_id,
+            model_type=clone.model_type,
+        )
+        
+        result = client.wait_for_training(
+            clone.speaker_id,
+            max_wait_seconds=dto.max_wait_seconds,
+            poll_interval=dto.poll_interval,
+        )
+        
+        status = result.get("status", 0)
+        self.repository.update(dto.clone_id, {
+            "status": status,
+            "version": result.get("version"),
+            "demo_audio_url": result.get("demo_audio"),
+        })
+        
+        return result
+
+    def delete_voice_clone(self, clone_id: int) -> bool:
+        """删除声音复刻记录"""
+        return self.repository.delete(clone_id)
+
+    def update_voice_clone(self, clone_id: int, update_data: dict) -> Optional[VoiceCloneEntity]:
+        """更新声音复刻记录"""
+        po = self.repository.update(clone_id, update_data)
+        if not po:
+            return None
+        data = {k: v for k, v in po.__dict__.items() if not k.startswith("_")}
+        return VoiceCloneEntity(**data)

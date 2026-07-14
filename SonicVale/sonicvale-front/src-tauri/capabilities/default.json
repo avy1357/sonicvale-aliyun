@@ -1,0 +1,20 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "默认权限集合,允许前端调用本应用所需的全部原生能力",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:webview:allow-internal-toggle-devtools",
+    "shell:allow-open",
+    "shell:allow-execute",
+    "dialog:allow-open",
+    "dialog:allow-save",
+    "fs:allow-write-file",
+    "fs:allow-copy-file",
+    "fs:allow-read-dir",
+    "fs:allow-exists",
+    "os:allow-home-dir",
+    "log:default"
+  ]
+}

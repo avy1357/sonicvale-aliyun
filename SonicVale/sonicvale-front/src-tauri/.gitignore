@@ -1,0 +1,12 @@
+# Rust 构建产物
+/target/
+**/*.rs.bk
+
+# Tauri 生成的文件
+/gen/schemas/
+
+# 资源文件(体积大,不入库)
+/resources/main.exe
+
+# 本地环境
+.env
