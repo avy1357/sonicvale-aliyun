@@ -38,7 +38,7 @@
 | 层级 | 技术 |
 |------|------|
 | 前端框架 | Vue 3 + Element Plus |
-| 桌面应用 | Electron |
+| 桌面应用 | Tauri (Rust) |
 | 构建工具 | Vite |
 | 音频可视化 | wavesurfer.js |
 | 后端框架 | FastAPI (Python) |
@@ -76,7 +76,7 @@ SonicVale/
 │   │   └── main.py                   # 后端启动入口
 │   ├── tests/                        # 测试
 │   └── requirements.txt              # Python 依赖
-├── sonicvale-front/                  # 前端 (Vue 3 + Element Plus + Electron)
+├── sonicvale-front/                  # 前端 (Vue 3 + Element Plus + Tauri)
 │   ├── src/
 │   │   ├── api/                      # API 请求模块
 │   │   ├── pages/                    # 页面组件
@@ -89,7 +89,7 @@ SonicVale/
 │   │   ├── components/               # 可复用组件
 │   │   ├── router/                   # 路由配置
 │   │   └── utils/                    # 工具函数
-│   ├── electron/                     # Electron 主进程
+│   ├── src-tauri/                    # Tauri 主进程 (Rust)
 │   └── package.json
 ├── image/                            # 截图资源
 └── LICENSE                           # AGPL-3.0 许可证
@@ -116,10 +116,18 @@ uvicorn app.main:app --reload --port 8200
 
 ### 3. 启动前端
 
+前端基于 Tauri，需要先安装 [Rust 工具链](https://rustup.rs)（Windows 用户另需 [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)，Win11 自带）。
+
 ```bash
 cd sonicvale-front
 npm install
-npm run start
+npm run start       # 开发模式（tauri dev）
+```
+
+打包构建：
+
+```bash
+npm run electron-build   # 输出 NSIS 安装包（tauri build）
 ```
 
 ## 后端 API
