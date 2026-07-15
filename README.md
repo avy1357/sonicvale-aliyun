@@ -98,8 +98,8 @@ SonicVale/
 ### 1. 克隆项目
 
 ```bash
-git clone https://github.com/xcLee001/SonicVale.git
-cd SonicVale
+git clone https://github.com/avy1357/sonicvale-aliyun.git
+cd sonicvale-aliyun
 ```
 
 ### 2. 启动后端
@@ -151,60 +151,6 @@ npm run electron-build   # 输出 NSIS 安装包（tauri build）
 | 火山音色 | `/volcano-voice` | 火山引擎音色同步 |
 | 阿里云语音克隆 | `/aliyun-voice-clone` | 阿里云语音克隆 |
 
-## 详细使用文档
-
-[轻语云配 - AI 多角色多情绪配音平台使用教程](https://sw4s2hg7k5y.feishu.cn/wiki/WjbUw1t7JiWIa7k2pFXcxqSbnde?from=from_copylink)
-
-## 效果演示
-
-[点击查看 B 站演示效果视频](https://www.bilibili.com/video/BV1tSpTz6EBH/)
-
-## 截图
-
-**LLM 配置界面**
-
-![LLM 配置](image/image-1.png)
-
-**TTS 配置界面**
-
-![TTS 配置](image/image-2.png)
-
-**音色管理界面**
-
-![音色管理](image/image-3.png)
-
-**项目创建界面**
-
-![项目创建](image/image-4.png)
-
-**章节创建界面**
-
-![章节创建](image/image-5.png)
-
-**章节内容导入**
-
-![内容导入](image/image-6.png)
-
-**台词自动拆分**
-
-![台词拆分](image/image-7.png)
-
-**角色绑定，多章节共享角色音色**
-
-![角色绑定](image/image-8.png)
-
-**台词编辑，高度自定义**
-
-![台词编辑](image/image-9.png)
-
-**配音生成**
-
-![配音生成](image/image-10.png)
-
-**生成后音频可编辑**
-
-![音频编辑](image/image-11.png)
-
 ## 二次开发说明
 
 本软件依据 **AGPL-3.0** 开源许可协议发布。基于本项目进行二次开发时，开发者须遵守以下规范：
@@ -213,24 +159,13 @@ npm run electron-build   # 输出 NSIS 安装包（tauri build）
 
 必须在衍生软件的用户界面及代码文档中清晰标注：
 
-> "本软件基于开源项目《音谷》二次开发"
+> "本软件基于开源项目《轻语云配》二次开发"
 
 并附上原项目仓库链接。
 
 ### 商业使用限制
 
 未获得书面商业授权前，任何基于本项目的衍生作品不得用于商业用途或提供商业服务。
-
-## 联系方式
-
-- **Bug / 功能建议**：[GitHub Issues](https://github.com/xcLee001/SonicVale/issues)
-- **QQ 交流群**：1060711739（1群已满）、575715633（2群）（验证信息请填写 "音谷配音"）
-
-## 赞助
-
-如果您觉得我的项目对您有所帮助，欢迎赞助支持。
-
-<img src="image/赞赏码.jpg" alt="赞赏码" width="320px" height="320px">
 
 ## 许可证
 
