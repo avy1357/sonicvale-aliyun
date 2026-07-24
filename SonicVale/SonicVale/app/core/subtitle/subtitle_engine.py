@@ -1,11 +1,9 @@
 from app.core.subtitle.BcutASR import BcutASR
-from app.core.subtitle.JianYingASR import JianYingASR
 from app.core.prompts import get_subtitle_correction_prompt
 from app.core.llm_engine import LLMEngine
 
 
 def generate_subtitle(audio_file,save_path):
-    # asr = JianYingASR(audio_file)
     asr = BcutASR(audio_file)
     result = asr.run()
     result.to_srt(save_path)
