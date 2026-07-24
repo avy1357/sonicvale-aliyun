@@ -14,10 +14,10 @@ class ProjectPO(Base):
     id = Column(Integer, primary_key=True, autoincrement=True,index=True)
     name = Column(String(255), nullable=False, unique=True, index=True)
     description = Column(Text, nullable=True)
-    llm_provider_id = Column(Integer, nullable=True)  # LLM提供商
+    llm_provider_id = Column(Integer, ForeignKey("llm_provider.id", ondelete="SET NULL"), nullable=True)  # LLM提供商
     llm_model = Column(String(255), nullable=True)  # 指定模型
-    tts_provider_id = Column(Integer, nullable=True)  # TTS提供商
-    prompt_id = Column(Integer, nullable=True) # 关联的prompt
+    tts_provider_id = Column(Integer, ForeignKey("tts_provider.id", ondelete="SET NULL"), nullable=True)  # TTS提供商
+    prompt_id = Column(Integer, ForeignKey("prompts.id", ondelete="SET NULL"), nullable=True) # 关联的prompt
     # 是否开启精准填充
     is_precise_fill = Column(Integer, default=0, nullable=False)
     # 项目根地址
@@ -33,9 +33,9 @@ class RolePO(Base):
     __tablename__ = "roles"
 
     id = Column(Integer, primary_key=True, autoincrement=True,index=True)
-    project_id = Column(Integer,  nullable=False)
+    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
     name = Column(String(100), nullable=False)
-    default_voice_id = Column(Integer, ForeignKey("voices.id"), nullable=True)
+    default_voice_id = Column(Integer, ForeignKey("voices.id", ondelete="SET NULL"), nullable=True)
     instruction = Column(Text, nullable=True)  # 语音风格指令（如"用温柔的语气说"）
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
@@ -48,7 +48,7 @@ class VoicePO(Base):
     __tablename__ = "voices"
 
     id = Column(Integer, primary_key=True, autoincrement=True, index=True)
-    tts_provider_id = Column(Integer, nullable=True)
+    tts_provider_id = Column(Integer, ForeignKey("tts_provider.id", ondelete="SET NULL"), nullable=True)
     name = Column(String(100), nullable=False)
     reference_path = Column(String(255), nullable=True)
     description = Column(Text, nullable=True)
@@ -63,9 +63,9 @@ class VoicePO(Base):
 class MultiEmotionVoicePO(Base):
     __tablename__ = "multi_emotion"
     id = Column(Integer, primary_key=True, autoincrement=True, index=True)
-    voice_id = Column(Integer, nullable=False)
-    emotion_id = Column(Integer, nullable=False)
-    strength_id = Column(Integer, nullable=True)
+    voice_id = Column(Integer, ForeignKey("voices.id", ondelete="CASCADE"), nullable=False)
+    emotion_id = Column(Integer, ForeignKey("emotions.id", ondelete="CASCADE"), nullable=False)
+    strength_id = Column(Integer, ForeignKey("strengths.id", ondelete="SET NULL"), nullable=True)
     reference_path = Column(String(255), nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc),
@@ -78,7 +78,7 @@ class ChapterPO(Base):
     __tablename__ = "chapters"
 
     id = Column(Integer, primary_key=True, autoincrement=True,index=True)
-    project_id = Column(Integer, nullable=False)
+    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
     title = Column(String(255), nullable=False)
     order_index = Column(Integer, nullable=True)
     text_content = Column(Text, nullable=True)  # SQLite 没有 LongText，用 Text 替代
@@ -120,16 +120,16 @@ class LinePO(Base):
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
 
     # 外键
-    chapter_id = Column(Integer, nullable=False, index=True)
-    role_id = Column(Integer, nullable=True)
-    voice_id = Column(Integer,  nullable=True)
+    chapter_id = Column(Integer, ForeignKey("chapters.id", ondelete="CASCADE"), nullable=False, index=True)
+    role_id = Column(Integer, ForeignKey("roles.id", ondelete="SET NULL"), nullable=True)
+    voice_id = Column(Integer, ForeignKey("voices.id", ondelete="SET NULL"), nullable=True)
 
     # 核心信息
     line_order = Column(Integer, nullable=True, index=True)
     text_content = Column(Text, nullable=True)
     # 情绪 和 强弱
-    emotion_id = Column(Integer, nullable=True)
-    strength_id = Column(Integer, nullable=True)
+    emotion_id = Column(Integer, ForeignKey("emotions.id", ondelete="SET NULL"), nullable=True)
+    strength_id = Column(Integer, ForeignKey("strengths.id", ondelete="SET NULL"), nullable=True)
     # 语音风格指令（覆盖角色默认指令）
     instruction = Column(Text, nullable=True)
 
