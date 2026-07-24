@@ -2,7 +2,7 @@ import json
 import logging
 import time
 from os import PathLike
-from typing import Optional
+from typing import List, Optional, Union
 
 import requests
 
@@ -34,23 +34,20 @@ class BcutASR(BaseASR):
         'Content-Type': 'application/json'
     }
 
-    def __init__(self, audio_path: [str, bytes], use_cache: bool = False):
+    def __init__(self, audio_path: Union[str, bytes], use_cache: bool = False):
         super().__init__(audio_path, use_cache=use_cache)
         self.session = requests.Session()
-        self.task_id = None
-        self.__etags = []
+        self.task_id: Optional[str] = None
+        self.__etags: List[str] = []
 
-        self.__in_boss_key: Optional[str, None] = None
-        self.__resource_id: Optional[str, None] = None
-        self.__upload_id: Optional[str, None] = None
-        self.__upload_urls: Optional[list[str]] = []
-        self.__per_size: Optional[int, None] = None
-        self.__clips: Optional[int, None] = None
+        self.__in_boss_key: Optional[str] = None
+        self.__resource_id: Optional[str] = None
+        self.__upload_id: Optional[str] = None
+        self.__upload_urls: List[str] = []
+        self.__per_size: Optional[int] = None
+        self.__clips: Optional[int] = None
 
-        self.__etags: Optional[list[str]] = []
-        self.__download_url: Optional[str, None] = None
-        self.task_id: Optional[str, None] = None
-
+        self.__download_url: Optional[str] = None
 
     def upload(self) -> None:
         """申请上传"""

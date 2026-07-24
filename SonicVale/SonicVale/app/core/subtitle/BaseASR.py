@@ -4,6 +4,7 @@ import os
 import zlib
 import tempfile
 import threading
+from typing import Union
 
 from .ASRData import ASRDataSeg, ASRData
 
@@ -13,7 +14,7 @@ class BaseASR:
     CACHE_FILE = os.path.join(tempfile.gettempdir(), "bk_asr", "asr_cache.json")
     _lock = threading.Lock()
 
-    def __init__(self, audio_path: [str, bytes], use_cache: bool = False):
+    def __init__(self, audio_path: Union[str, bytes], use_cache: bool = False):
         self.audio_path = audio_path
         self.file_binary = None
 

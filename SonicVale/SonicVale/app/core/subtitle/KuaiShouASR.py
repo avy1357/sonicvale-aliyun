@@ -1,11 +1,12 @@
 import requests
+from typing import Union
 
 from .ASRData import ASRDataSeg
 from .BaseASR import BaseASR
 
 
 class KuaiShouASR(BaseASR):
-    def __init__(self, audio_path: [str, bytes], use_cache: bool = False):
+    def __init__(self, audio_path: Union[str, bytes], use_cache: bool = False):
         super().__init__(audio_path, use_cache)
 
     def _run(self) -> dict:
