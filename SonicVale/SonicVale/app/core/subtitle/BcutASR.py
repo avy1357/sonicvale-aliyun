@@ -64,7 +64,8 @@ class BcutASR(BaseASR):
         resp = requests.post(
             API_REQ_UPLOAD,
             data=payload,
-            headers=self.headers
+            headers=self.headers,
+            timeout=30
         )
         resp.raise_for_status()
         resp = resp.json()
@@ -92,7 +93,8 @@ class BcutASR(BaseASR):
             resp = requests.put(
                 self.__upload_urls[clip],
                 data=self.file_binary[start_range:end_range],
-                headers=self.headers
+                headers=self.headers,
+                timeout=120
             )
             resp.raise_for_status()
             etag = resp.headers.get("Etag")
@@ -111,7 +113,8 @@ class BcutASR(BaseASR):
         resp = requests.post(
             API_COMMIT_UPLOAD,
             data=data,
-            headers=self.headers
+            headers=self.headers,
+            timeout=30
         )
         resp.raise_for_status()
         resp = resp.json()
@@ -121,7 +124,8 @@ class BcutASR(BaseASR):
     def create_task(self) -> str:
         """开始创建转换任务"""
         resp = requests.post(
-            API_CREATE_TASK, json={"resource": self.__download_url, "model_id": "8"}, headers=self.headers
+            API_CREATE_TASK, json={"resource": self.__download_url, "model_id": "8"}, headers=self.headers,
+            timeout=30
         )
         resp.raise_for_status()
         resp = resp.json()
@@ -131,7 +135,7 @@ class BcutASR(BaseASR):
 
     def result(self, task_id: Optional[str] = None):
         """查询转换结果"""
-        resp = requests.get(API_QUERY_RESULT, params={"model_id": 7, "task_id": task_id or self.task_id}, headers=self.headers)
+        resp = requests.get(API_QUERY_RESULT, params={"model_id": 7, "task_id": task_id or self.task_id}, headers=self.headers, timeout=30)
         resp.raise_for_status()
         resp = resp.json()
         return resp["data"]
