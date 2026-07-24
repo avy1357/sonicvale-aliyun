@@ -30,7 +30,10 @@
       "assetProtocol": {
         "enable": true,
         "scope": [
-          "**"
+          "$RESOURCE/**",
+          "$APPDATA/**",
+          "$DOCUMENT/**",
+          "$HOME/**"
         ]
       }
     }
@@ -67,12 +70,11 @@
         {
           "name": "open-folder",
           "cmd": "explorer.exe",
-          "args": true
-        },
-        {
-          "name": "taskkill",
-          "cmd": "taskkill",
-          "args": true
+          "args": [
+            {
+              "validator": "^.+$"
+            }
+          ]
         }
       ]
     }

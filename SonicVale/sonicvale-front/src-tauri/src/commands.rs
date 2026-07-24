@@ -16,6 +16,24 @@ pub struct VoiceFolderItem {
     pub reference_path: String,
 }
 
+/// 校验路径是否在用户主目录下,防止目录遍历
+fn validate_user_path(path: &PathBuf) -> Result<PathBuf, String> {
+    let canonical = path
+        .canonicalize()
+        .map_err(|e| format!("路径不存在或无法访问: {e}"))?;
+    // 允许的根目录:用户主目录
+    let home = dirs_next::home_dir()
+        .ok_or_else(|| "无法获取用户主目录".to_string())?
+        .canonicalize()
+        .map_err(|e| format!("主目录规范化失败: {e}"))?;
+    if !canonical.starts_with(&home) {
+        return Err(format!(
+            "安全限制:仅允许访问用户主目录下的路径"
+        ));
+    }
+    Ok(canonical)
+}
+
 /// 选择音色文件夹并扫描子目录结构
 /// 目录结构约定:rootPath/<emotion>/<strength>.<ext>
 /// 返回每个文件的 { voice_name, emotion_name, strength_name, reference_path }
@@ -24,7 +42,7 @@ pub fn select_voice_folder(
     _app_handle: AppHandle,
     root_path: String,
 ) -> Result<Vec<VoiceFolderItem>, String> {
-    let root = PathBuf::from(&root_path);
+    let root = validate_user_path(&PathBuf::from(&root_path))?;
     let voice_name = root
         .file_name()
         .and_then(|n| n.to_str())
@@ -45,7 +63,14 @@ pub fn select_voice_folder(
             .unwrap_or("")
             .to_string();
 
-        let files = fs::read_dir(&path).map_err(|e| format!("读取子目录失败: {e}"))?;
+        // 单个子目录读取失败时跳过而非中断整个扫描
+        let files = match fs::read_dir(&path) {
+            Ok(f) => f,
+            Err(e) => {
+                log::warn!("读取子目录 {:?} 失败,跳过: {e}", path);
+                continue;
+            }
+        };
         for file_entry in files.flatten() {
             let file_path = file_entry.path();
             if !file_path.is_file() {

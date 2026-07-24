@@ -35,7 +35,8 @@ pub fn run() {
                     Ok(child) => {
                         {
                             let state: tauri::State<BackendState> = app_handle.state();
-                            *state.child.lock().unwrap() = Some(child);
+                            // 锁中毒时也取到数据,避免二次 panic
+                            *state.child.lock().unwrap_or_else(|e| e.into_inner()) = Some(child);
                         }
                         // 健康轮询,就绪后显示主窗口
                         if sidecar::wait_for_ready(60, 500) {
@@ -63,7 +64,7 @@ pub fn run() {
             if let WindowEvent::CloseRequested { .. } = event {
                 let app_handle = window.app_handle();
                 let state: tauri::State<BackendState> = app_handle.state();
-                if let Some(child) = state.child.lock().unwrap().take() {
+                if let Some(child) = state.child.lock().unwrap_or_else(|e| e.into_inner()).take() {
                     sidecar::kill_backend_tree(child);
                 }
             }
