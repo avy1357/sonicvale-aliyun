@@ -1,6 +1,7 @@
 # app/tts_worker.py
 import asyncio
 import functools
+import logging
 from fastapi import FastAPI
 
 from app.core.ws_manager import manager
@@ -54,6 +55,8 @@ async def tts_worker(app: FastAPI):
     while True:
         project_id, dto = await q.get()
         db = SessionLocal()
+        # 预初始化,防止异常处理时 NameError
+        line_service = None
         try:
             line_service = get_line_service(db)
             role_service = get_role_service(db)
@@ -127,11 +130,28 @@ async def tts_worker(app: FastAPI):
                 "project_id": project_id
             })
 
+        except asyncio.TimeoutError:
+            logging.error("[tts_worker] 台词 %s 生成超时(>%ds)", dto.id, TTS_TIMEOUT_SECONDS)
+            if line_service is not None:
+                try:
+                    line_service.update_line(dto.id, {"status": "failed"})
+                except Exception as inner:
+                    logging.warning("[tts_worker] 更新台词状态失败: %s", inner)
+            await manager.broadcast({
+                "event": "line_update",
+                "line_id": dto.id,
+                "status": "failed",
+                "progress":  q.qsize(),
+                "meta": f"超时(>{TTS_TIMEOUT_SECONDS}s)"
+            })
+
         except Exception as e:
-            try:
-                line_service.update_line(dto.id, {"status": "failed"})
-            except Exception:
-                pass
+            logging.exception("[tts_worker] 台词 %s 生成失败", dto.id)
+            if line_service is not None:
+                try:
+                    line_service.update_line(dto.id, {"status": "failed"})
+                except Exception as inner:
+                    logging.warning("[tts_worker] 更新台词状态失败: %s", inner)
             await manager.broadcast({
                 "event": "line_update",
                 "line_id": dto.id,
