@@ -1,4 +1,5 @@
 import os
+import contextlib
 import subprocess
 import tempfile
 import soundfile as sf
@@ -24,15 +25,37 @@ class AudioProcessor:
 
     def _create_tmp_file(self):
         os.makedirs(os.path.dirname(self.audio_path) or ".", exist_ok=True)
-        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".wav",
-                                          dir=os.path.dirname(self.audio_path) or ".")
-        return tmp.name
+        # 仅生成路径,不创建空文件(由 ffmpeg 创建),减少无用文件残留
+        fd, path = tempfile.mkstemp(suffix=".wav",
+                                     dir=os.path.dirname(self.audio_path) or ".")
+        os.close(fd)  # 立即关闭 fd,仅保留路径
+        return path
 
     def _run_ffmpeg(self, cmd):
         subprocess.run(
             cmd, check=True,
             creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
         )
+
+    def _process_and_replace(self, cmd):
+        """执行 ffmpeg 命令并将结果替换到 audio_path,失败时清理临时文件"""
+        try:
+            self._run_ffmpeg(cmd)
+            os.replace(self.temp_path, self.audio_path)
+        except Exception:
+            self.cleanup()
+            raise
+
+    def cleanup(self):
+        """清理临时文件(如果存在)"""
+        with contextlib.suppress(FileNotFoundError, OSError):
+            os.remove(self.temp_path)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.cleanup()
 
     def _normalize(self, path):
         """防止音量削波"""
@@ -61,8 +84,7 @@ class AudioProcessor:
             "-c:a", "pcm_s16le",
             self.temp_path
         ]
-        self._run_ffmpeg(cmd)
-        os.replace(self.temp_path, self.audio_path)
+        self._process_and_replace(cmd)
 
     def insert_silence(self, insert_ms: int, duration_sec: float):
         """在指定时间点插入静音"""
@@ -82,8 +104,7 @@ class AudioProcessor:
             "-c:a", "pcm_s16le",
             self.temp_path
         ]
-        self._run_ffmpeg(cmd)
-        os.replace(self.temp_path, self.audio_path)
+        self._process_and_replace(cmd)
 
     def append_silence(self, duration_sec: float):
         """
@@ -128,8 +149,7 @@ class AudioProcessor:
             ]
 
         # 执行 ffmpeg 命令
-        self._run_ffmpeg(cmd)
-        os.replace(self.temp_path, self.audio_path)
+        self._process_and_replace(cmd)
         # 更新音频时长（防止后续操作出错）
         info = sf.info(self.audio_path)
         self.duration = info.duration
@@ -145,8 +165,7 @@ class AudioProcessor:
             "-c:a", "pcm_s16le",
             self.temp_path
         ]
-        self._run_ffmpeg(cmd)
-        os.replace(self.temp_path, self.audio_path)
+        self._process_and_replace(cmd)
 
     def change_volume(self, volume: float):
         """音量调整"""
@@ -159,8 +178,7 @@ class AudioProcessor:
             "-c:a", "pcm_s16le",
             self.temp_path
         ]
-        self._run_ffmpeg(cmd)
-        os.replace(self.temp_path, self.audio_path)
+        self._process_and_replace(cmd)
 
     def export(self, out_path: str):
         """导出音频到目标路径（带软限幅）"""

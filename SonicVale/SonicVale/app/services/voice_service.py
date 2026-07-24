@@ -230,34 +230,33 @@ class VoiceService:
         audio_path = dto.audio_path
         if not os.path.exists(audio_path):
             raise FileNotFoundError(audio_path)
-        
-        processor = AudioProcessor(audio_path)
-        
-        start_ms = dto.start_ms
-        end_ms = dto.end_ms
-        speed = dto.speed
-        volume = dto.volume
-        current_ms = dto.current_ms
-        silence_sec = dto.silence_sec
-        
-        # ---------- (1) 优先裁剪 ----------
-        if start_ms is not None and end_ms is not None and end_ms > start_ms:
-            processor.cut(start_ms, end_ms)
-        
-        # ---------- (2) 插入静音 ----------
-        elif current_ms is not None and silence_sec is not None and silence_sec != 0:
-            processor.insert_silence(current_ms, silence_sec)
-        
-        # ---------- (3) 末尾静音/裁剪 ----------
-        elif current_ms is None and silence_sec is not None and silence_sec != 0:
-            processor.append_silence(silence_sec)
-        
-        # ---------- (4) 音量 + 变速 ----------
-        if speed != 1.0:
-            processor.change_speed(speed)
-        if volume != 1.0:
-            processor.change_volume(volume)
-        
+
+        with AudioProcessor(audio_path) as processor:
+            start_ms = dto.start_ms
+            end_ms = dto.end_ms
+            speed = dto.speed
+            volume = dto.volume
+            current_ms = dto.current_ms
+            silence_sec = dto.silence_sec
+
+            # ---------- (1) 优先裁剪 ----------
+            if start_ms is not None and end_ms is not None and end_ms > start_ms:
+                processor.cut(start_ms, end_ms)
+
+            # ---------- (2) 插入静音 ----------
+            elif current_ms is not None and silence_sec is not None and silence_sec != 0:
+                processor.insert_silence(current_ms, silence_sec)
+
+            # ---------- (3) 末尾静音/裁剪 ----------
+            elif current_ms is None and silence_sec is not None and silence_sec != 0:
+                processor.append_silence(silence_sec)
+
+            # ---------- (4) 音量 + 变速 ----------
+            if speed != 1.0:
+                processor.change_speed(speed)
+            if volume != 1.0:
+                processor.change_volume(volume)
+
         return True
 
     def copy_voice(self, source_voice_id: int, new_name: str, target_dir: str = None) -> VoiceEntity:
