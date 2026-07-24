@@ -4,9 +4,13 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 
 import uvicorn
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from starlette.middleware.cors import CORSMiddleware
+
+from app.core.response import Res
 
 from app.core.config import getConfigPath
 from app.core.prompts import get_prompt_str
@@ -76,6 +80,39 @@ app.add_middleware(
     allow_methods=["*"],          # 允许所有方法（GET, POST, DELETE...）
     allow_headers=["*"],          # 允许所有请求头
 )
+
+
+# =========================
+# 全局异常处理器（统一返回 Res 格式）
+# =========================
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    """处理路由中显式 raise 的 HTTPException，统一为 Res 格式"""
+    logging.warning("HTTPException %s %s -> %s: %s", request.method, request.url.path, exc.status_code, exc.detail)
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=Res(code=exc.status_code, message=str(exc.detail), data=None).dict(),
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """处理请求参数校验失败，统一为 Res 格式"""
+    logging.warning("参数校验失败 %s %s: %s", request.method, request.url.path, exc.errors())
+    return JSONResponse(
+        status_code=422,
+        content=Res(code=422, message="请求参数校验失败", data=exc.errors()).dict(),
+    )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    """兜底处理未捕获异常，避免向前端泄露堆栈信息"""
+    logging.exception("未处理异常 %s %s: %s", request.method, request.url.path, exc)
+    return JSONResponse(
+        status_code=500,
+        content=Res(code=500, message="服务器内部错误，请查看后端日志", data=None).dict(),
+    )
 
 
 
