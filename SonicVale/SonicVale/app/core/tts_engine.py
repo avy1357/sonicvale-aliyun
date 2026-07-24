@@ -44,7 +44,7 @@ class TTSEngine:
                 try:
                     error_data = resp.json()
                     error_msg = error_data.get('detail') or error_data.get('message') or error_data.get('msg') or resp.text
-                except:
+                except (ValueError, KeyError):
                     error_msg = resp.text
                 raise Exception(f"TTS服务返回错误({resp.status_code}): {error_msg}")
 
