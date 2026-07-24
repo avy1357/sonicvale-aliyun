@@ -1,16 +1,21 @@
 # app/main.py
 import asyncio
 import logging
+import os
 from concurrent.futures import ThreadPoolExecutor
 
 import uvicorn
 from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 from sqlalchemy.orm import Session
 from starlette.middleware.cors import CORSMiddleware
 
 from app.core.response import Res
+
+# 可选 API Key 认证：仅当环境变量 SVC_API_KEY 设置时启用
+SVC_API_KEY = os.getenv("SVC_API_KEY")
 
 from app.core.config import getConfigPath
 from app.core.prompts import get_prompt_str
@@ -35,7 +40,6 @@ from app.services.llm_provider_service import LLMProviderService
 
 from app.services.tts_provider_service import TTSProviderService
 
-import os
 import sys
 
 root_path = os.getcwd()
@@ -80,6 +84,52 @@ app.add_middleware(
     allow_methods=["*"],          # 允许所有方法（GET, POST, DELETE...）
     allow_headers=["*"],          # 允许所有请求头
 )
+
+
+# =========================
+# 可选 API Key 认证中间件
+# =========================
+class APIKeyMiddleware(BaseHTTPMiddleware):
+    """
+    仅当环境变量 SVC_API_KEY 设置时启用认证。
+    - HTTP 请求需携带 Authorization: Bearer <SVC_API_KEY>
+    - WebSocket 请求需在 query 中携带 api_key=<SVC_API_KEY>
+    - 放行 OPTIONS 预检请求与健康检查接口 GET /
+    未设置环境变量时完全跳过，保持本地桌面使用向后兼容。
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        if not SVC_API_KEY:
+            return await call_next(request)
+
+        # 放行 CORS 预检
+        if request.method == "OPTIONS":
+            return await call_next(request)
+
+        path = request.url.path
+
+        # 放行健康检查
+        if path == "/" and request.method == "GET":
+            return await call_next(request)
+
+        # WebSocket：通过 query 参数校验
+        if path == "/ws":
+            token = request.query_params.get("api_key")
+            if token != SVC_API_KEY:
+                return JSONResponse(status_code=401, content=Res(code=401, message="WebSocket 认证失败", data=None).dict())
+            return await call_next(request)
+
+        # HTTP：校验 Authorization: Bearer <key>
+        auth = request.headers.get("Authorization", "")
+        prefix = "Bearer "
+        token = auth[len(prefix):] if auth.startswith(prefix) else ""
+        if token != SVC_API_KEY:
+            return JSONResponse(status_code=401, content=Res(code=401, message="未授权：API Key 无效或缺失", data=None).dict())
+
+        return await call_next(request)
+
+
+app.add_middleware(APIKeyMiddleware)
 
 
 # =========================
