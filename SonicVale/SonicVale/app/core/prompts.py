@@ -1,9 +1,42 @@
 # 根据小说内容生成
 
+import json
 import textwrap
 
 
+def _sanitize_user_input(text: str) -> str:
+    """清理用户输入，降低 prompt 注入风险。
+
+    移除可能被 LLM 误解为控制标签的内容（如 <result>、</result>、<novel_content> 等）。
+    仅做基础清理，无法完全消除所有注入风险，但仍能阻挡常见的标签污染。
+    """
+    if not isinstance(text, str):
+        return str(text)
+    # 移除已知的控制标签，避免用户文本污染 prompt 结构
+    protected_tags = [
+        "<result>", "</result>",
+        "<novel_content>", "</novel_content>",
+        "<possible_characters>", "</possible_characters>",
+        "<possible_emotions>", "</possible_emotions>",
+        "<possible_strengths>", "</possible_strengths>",
+        "<original_text>", "</original_text>",
+        "<subtitle_lines>", "</subtitle_lines>",
+        "<json_str>", "</json_str>",
+        "<role_name>", "</role_name>",
+        "<voice>", "</voice>",
+    ]
+    cleaned = text
+    for tag in protected_tags:
+        cleaned = cleaned.replace(tag, "")
+    return cleaned
+
+
 def get_context2lines_prompt(possible_characters, novel_content,possible_emotions,possible_strengths) -> str:
+    # 清理用户输入以降低 prompt 注入风险
+    possible_characters = _sanitize_user_input(possible_characters)
+    novel_content = _sanitize_user_input(novel_content)
+    possible_emotions = _sanitize_user_input(possible_emotions)
+    possible_strengths = _sanitize_user_input(possible_strengths)
 
     prompt = f"""
 你的任务是将给定小说内容划分为角色台词和旁白，并输出包含<result>标签的结构化JSON结果。
@@ -143,6 +176,8 @@ def get_prompt_str():
 
 
 def get_auto_fix_json_prompt(json_str: str) -> str:
+    # 清理用户输入以降低 prompt 注入风险
+    json_str = _sanitize_user_input(json_str)
     prompt = f"""
     你将收到一段可能出错的 JSON 字符串（它可能是 LLM 生成的结果），其中可能存在以下问题：
         多余或缺失的逗号
@@ -158,12 +193,16 @@ def get_auto_fix_json_prompt(json_str: str) -> str:
     输入内容：
     <json_str>
     {json_str}
-    </json_str>w
+    </json_str>
     """
     return textwrap.dedent(prompt)
 
 
 def get_add_smart_role_and_voice(original_text: str, role_name, voice_names):
+    # 清理用户输入以降低 prompt 注入风险
+    original_text = _sanitize_user_input(original_text)
+    role_name = _sanitize_user_input(role_name)
+    voice_names = _sanitize_user_input(voice_names)
     prompt = f"""
     你是“角色音色匹配助手”。你的任务是：根据小说原文中的角色表现，为每个在<role_name>中出现的角色匹配最符合其语气与性格的音色。
 
@@ -213,7 +252,13 @@ def get_subtitle_correction_prompt(original_text: str, subtitle_lines: list) -> 
     original_text: 原始正确文本
     subtitle_lines: ASR识别的字幕行列表，格式为 [{"index": 1, "text": "..."}]
     """
-    subtitle_json = "\n".join([f'  {{"index": {item["index"]}, "text": "{item["text"]}"}}' for item in subtitle_lines])
+    # 清理用户输入以降低 prompt 注入风险
+    original_text = _sanitize_user_input(original_text)
+    # 使用 json.dumps 安全构造 JSON，避免用户文本中的引号/换行破坏 JSON 结构
+    subtitle_json = "\n".join(
+        "  " + json.dumps({"index": item["index"], "text": item["text"]}, ensure_ascii=False)
+        for item in subtitle_lines
+    )
     
     prompt = f"""
 你是一个专业的字幕校对助手。你的任务是根据原文内容，修正ASR自动识别产生的字幕错误。
