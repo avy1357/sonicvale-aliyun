@@ -8,6 +8,7 @@ from typing import List, Tuple
 from sqlalchemy import Sequence
 
 from app.core.audio_engin import AudioProcessor
+from app.core.path_security import safe_extract_zip, validate_path_within_root
 from app.dto.voice_dto import VoiceAudioProcessDTO
 from app.entity.voice_entity import VoiceEntity
 from app.models.po import VoicePO
@@ -158,38 +159,48 @@ class VoiceService:
         
         # 创建临时目录解压
         with tempfile.TemporaryDirectory() as temp_dir:
-            # 解压zip文件
-            with zipfile.ZipFile(zip_path, 'r') as zipf:
-                zipf.extractall(temp_dir)
-            
+            # 安全解压:先校验所有成员路径,防止 Zip Slip
+            safe_extract_zip(zip_path, temp_dir)
+
             # 读取元数据
             metadata_path = os.path.join(temp_dir, "voices_metadata.json")
             if not os.path.exists(metadata_path):
                 raise ValueError("无效的音色库文件：缺少voices_metadata.json")
-            
+
             with open(metadata_path, 'r', encoding='utf-8') as f:
                 voices_metadata = json.load(f)
-            
+
             for voice_data in voices_metadata:
                 voice_name = voice_data["name"]
-                
+
                 # 检查是否已存在同名音色
                 existing = self.repository.get_by_name(voice_name, tts_provider_id)
                 if existing:
                     skipped_count += 1
                     skipped_names.append(voice_name)
                     continue
-                
+
                 reference_path = None
-                
+
                 # 如果有参考音频文件，复制到目标目录
                 if voice_data.get("reference_file"):
-                    source_file = os.path.join(temp_dir, voice_data["reference_file"])
+                    # 校验 reference_file 路径不穿越临时目录
+                    ref_file_rel = voice_data["reference_file"]
+                    try:
+                        source_file = validate_path_within_root(ref_file_rel, temp_dir)
+                    except ValueError:
+                        # 跳过恶意路径
+                        continue
                     if os.path.exists(source_file):
                         # 使用音色名称作为文件名，保留原扩展名
                         file_ext = os.path.splitext(source_file)[1]
                         file_name = f"{voice_name}{file_ext}"
+                        # 校验目标路径不穿越 target_dir
                         dest_file = os.path.join(target_dir, file_name)
+                        try:
+                            dest_file = validate_path_within_root(file_name, target_dir)
+                        except ValueError:
+                            continue
                         shutil.copy2(source_file, dest_file)
                         reference_path = dest_file
                 

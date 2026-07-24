@@ -16,6 +16,7 @@ from sqlalchemy import Sequence
 
 from app.core.audio_engin import AudioProcessor
 from app.core.config import getConfigPath, getFfmpegPath
+from app.core.path_security import validate_path_within_root
 from app.core.subtitle import subtitle_engine
 from app.core.tts_engine import TTSEngine
 from app.core.volcano_tts_client import VolcanoTTSClient
@@ -281,6 +282,14 @@ class LineService:
 
             if not os.path.exists(old_path):
                 return False  # 原始文件不存在
+
+            # 安全校验:新路径必须与旧路径在同一根目录下,防止路径穿越
+            old_root = os.path.dirname(os.path.dirname(old_path)) or os.path.dirname(old_path)
+            try:
+                new_path = validate_path_within_root(new_path, old_root)
+            except ValueError as e:
+                logging.warning("[update_audio_path] 路径校验失败: %s", e)
+                return False
 
             if os.path.exists(new_path):
                 return False  # 目标文件已存在，避免覆盖
