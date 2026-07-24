@@ -65,7 +65,12 @@ def create_tts_provider(dto: TTSProviderCreateDTO, service: TTSProviderService =
 
     success = service.create_tts_provider(dto)
     if success:
-        return Res(data=dto, code=200, message="创建成功")
+        # C6: 脱敏返回,避免响应中回显明文凭据
+        masked_data = dto.dict()
+        for field in _SECRET_FIELDS:
+            if masked_data.get(field):
+                masked_data[field] = "***"
+        return Res(data=masked_data, code=200, message="创建成功")
     else:
         return Res(data=None, code=400, message="创建失败")
 
@@ -99,7 +104,12 @@ def update_tts_provider(tts_provider_id: int, dto: TTSProviderCreateDTO, service
 
     success = service.update_tts_provider(tts_provider_id,dto.dict(exclude_unset=True))
     if success:
-        return Res(data=dto, code=200, message="更新成功")
+        # C6: 脱敏返回,避免响应中回显明文凭据
+        masked_data = dto.dict()
+        for field in _SECRET_FIELDS:
+            if masked_data.get(field):
+                masked_data[field] = "***"
+        return Res(data=masked_data, code=200, message="更新成功")
     else:
         return Res(data=None, code=400, message="更新失败")
 

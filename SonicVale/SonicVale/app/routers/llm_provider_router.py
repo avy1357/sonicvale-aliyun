@@ -13,6 +13,19 @@ from app.repositories.llm_provider_repository import LLMProviderRepository
 # 初始化 router
 router = APIRouter(prefix="/llm_providers", tags=["LLMProviders"])
 
+# C6: 敏感凭据脱敏字段
+_SECRET_FIELDS = ("api_key",)
+
+
+def _mask_secrets(entity) -> dict:
+    """返回脱敏后的字段字典，敏感凭证用 '***' 替代"""
+    data = {k: v for k, v in entity.__dict__.items() if not k.startswith("_")}
+    for field in _SECRET_FIELDS:
+        if data.get(field):
+            data[field] = "***"
+    return data
+
+
 # 依赖注入（实际LLM供应商可用 DI 容器）
 
 def get_llm_service(db: Session = Depends(get_db)) -> LLMProviderService:
@@ -40,8 +53,8 @@ def create_llm_provider(dto: LLMProviderCreateDTO, service: LLMProviderService =
 
         # 返回统一 Response
         if entityRes is not None:
-            # 创建成功，可以返回 DTO 或者部分字段
-            res = LLMProviderResponseDTO(**entityRes.__dict__)
+            # C6: 创建成功后脱敏返回
+            res = LLMProviderResponseDTO(**_mask_secrets(entityRes))
             return Res(data=res, code=200, message="创建成功")
         else:
             return Res(data=None, code=400, message=f"LLM供应商 '{entity.name}' 已存在")
@@ -56,7 +69,8 @@ def create_llm_provider(dto: LLMProviderCreateDTO, service: LLMProviderService =
 def get_llm_provider(llm_provider_id: int, service: LLMProviderService = Depends(get_llm_service)):
     entity = service.get_llm_provider(llm_provider_id)
     if entity:
-        res = LLMProviderResponseDTO(**entity.__dict__)
+        # C6: 脱敏返回
+        res = LLMProviderResponseDTO(**_mask_secrets(entity))
         return Res(data=res, code=200, message="查询成功")
     else:
         return Res(data=None, code=404, message="LLM供应商不存在")
@@ -66,7 +80,8 @@ def get_llm_provider(llm_provider_id: int, service: LLMProviderService = Depends
             description="查询所有LLM供应商信息")
 def get_all_llm_providers(service: LLMProviderService = Depends(get_llm_service)):
     entities = service.get_all_llm_providers()
-    dtos = [LLMProviderResponseDTO(**e.__dict__) for e in entities]
+    # C6: 脱敏返回
+    dtos = [LLMProviderResponseDTO(**_mask_secrets(e)) for e in entities]
     return Res(data=dtos, code=200, message="查询成功")
 
 
@@ -83,7 +98,12 @@ def update_llm_provider(llm_provider_id: int, dto: LLMProviderCreateDTO, service
 
     success = service.update_llm_provider(llm_provider_id,dto.dict(exclude_unset=True))
     if success:
-        return Res(data=dto, code=200, message="更新成功")
+        # C6: 脱敏返回
+        masked_data = dto.dict()
+        for field in _SECRET_FIELDS:
+            if masked_data.get(field):
+                masked_data[field] = "***"
+        return Res(data=masked_data, code=200, message="更新成功")
     else:
         return Res(data=None, code=400, message="更新失败")
 
