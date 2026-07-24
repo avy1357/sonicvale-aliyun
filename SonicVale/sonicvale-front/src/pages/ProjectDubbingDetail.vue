@@ -2279,14 +2279,13 @@ async function markAllAsCompleted() {
             let isExportSingleSubtitle = false
             try {
                 await ElMessageBox.confirm(
-                    '是否额外导出所有的单条字幕？<br><span style="color:#999;">（额外导出会增加音频导出时间，推荐选择“否”）</span>',
+                    '是否额外导出所有的单条字幕？\n（额外导出会增加音频导出时间，推荐选择“否”）',
                     '导出设置',
                     {
-                        dangerouslyUseHTMLString: true, // 允许用 HTML 格式
                         confirmButtonText: '是',
                         cancelButtonText: '否',
                         type: 'info',
-                        cancelButtonClass: 'el-button--danger'    // 「否」= 蓝色重点按钮
+                        cancelButtonClass: 'el-button--danger'
                     }
                 )
                 // 用户点击了“是”
@@ -2312,12 +2311,12 @@ async function markAllAsCompleted() {
                 
                 // 如果有缺失文件列表，显示更详细的信息
                 if (missingFiles.length > 0) {
-                    const missingInfo = missingFiles.slice(0, 5).join('\n') + 
-                        (missingFiles.length > 5 ? `\n...还有${missingFiles.length - 5}条` : '')
+                    const missingInfo = missingFiles.slice(0, 5).join('、') +
+                        (missingFiles.length > 5 ? ` ...还有${missingFiles.length - 5}条` : '')
+                    // 安全提示：使用纯文本，避免 XSS 风险
                     ElMessage.error({
-                        message: `导出失败：${errorMsg}\n${missingInfo}`,
-                        duration: 15000,
-                        dangerouslyUseHTMLString: true
+                        message: `导出失败：${errorMsg}。缺失文件：${missingInfo}`,
+                        duration: 15000
                     })
                 } else {
                     ElMessage.error(`重命名成功，但导出失败：${errorMsg}`)
