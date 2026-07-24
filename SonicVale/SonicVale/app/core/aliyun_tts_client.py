@@ -1,13 +1,14 @@
 import time
 import logging
-import threading
 from typing import Optional
 
 import dashscope
 from dashscope.audio.tts_v2 import SpeechSynthesizer
 
-# 保护 dashscope.api_key 全局状态的线程锁（C3: 并发安全）
-_dashscope_lock = threading.Lock()
+# 共享 dashscope 全局状态线程锁（C3: 并发安全）
+# 必须与 aliyun_voice_manager_client 共用同一把锁,否则两个客户端并发调用时
+# 仍会竞态修改 dashscope.api_key 全局变量
+from app.core.aliyun_voice_manager_client import _dashscope_lock
 
 
 class AliyunTTSClient:
@@ -46,9 +47,7 @@ class AliyunTTSClient:
         self.api_key = api_key
         self.model = model or self.DEFAULT_MODEL
         self.voice = voice or self.DEFAULT_VOICE
-
-        dashscope.api_key = api_key
-        dashscope.base_http_api_url = base_url
+        self.base_url = base_url
 
         logging.info("阿里云 CosyVoice TTS 客户端初始化成功，模型: %s, 默认音色: %s",
                      self.model, self.voice)
@@ -125,6 +124,7 @@ class AliyunTTSClient:
 
         with _dashscope_lock:
             dashscope.api_key = self.api_key
+            dashscope.base_http_api_url = self.base_url
             synthesizer = SpeechSynthesizer(**kwargs)
             audio = synthesizer.call(text)
 
