@@ -541,7 +541,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, watch, nextTick, computed } from 'vue'
+import { ref, onMounted, onBeforeUnmount, watch, nextTick, computed } from 'vue'
 import { ElMessage, ElLoading } from 'element-plus'
 import { Headset } from '@element-plus/icons-vue'
 import dayjs from 'dayjs'
@@ -657,11 +657,23 @@ function togglePlay(absPath) {
   audioPlayer.play().catch(() => ElMessage.error('无法播放该音频文件'))
 }
 
-audioPlayer.addEventListener('play', () => { isPlaying.value = true })
-audioPlayer.addEventListener('pause', () => { isPlaying.value = false })
-audioPlayer.addEventListener('ended', () => {
+let onAudioPlay = () => { isPlaying.value = true }
+let onAudioPause = () => { isPlaying.value = false }
+let onAudioEnded = () => {
   isPlaying.value = false
   currentPath.value = null
+}
+
+audioPlayer.addEventListener('play', onAudioPlay)
+audioPlayer.addEventListener('pause', onAudioPause)
+audioPlayer.addEventListener('ended', onAudioEnded)
+
+onBeforeUnmount(() => {
+  audioPlayer.pause()
+  audioPlayer.src = ''
+  audioPlayer.removeEventListener('play', onAudioPlay)
+  audioPlayer.removeEventListener('pause', onAudioPause)
+  audioPlayer.removeEventListener('ended', onAudioEnded)
 })
 
 const dialogVisible = ref(false)

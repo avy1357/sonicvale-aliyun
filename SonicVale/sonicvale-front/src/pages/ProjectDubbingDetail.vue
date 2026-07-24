@@ -1581,12 +1581,15 @@ function toggleVoicePlay(voiceId) {
 }
 
 // 状态监听
-audioPlayer.addEventListener('play', () => { isPlaying.value = true })
-audioPlayer.addEventListener('pause', () => { isPlaying.value = false })
-audioPlayer.addEventListener('ended', () => {
+const onAudioPlay = () => { isPlaying.value = true }
+const onAudioPause = () => { isPlaying.value = false }
+const onAudioEnded = () => {
     isPlaying.value = false
     currentVoiceId.value = null
-})
+}
+audioPlayer.addEventListener('play', onAudioPlay)
+audioPlayer.addEventListener('pause', onAudioPause)
+audioPlayer.addEventListener('ended', onAudioEnded)
 
 
 
@@ -1679,6 +1682,14 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+    // 清理 audioPlayer 事件监听器与资源
+    try {
+        audioPlayer.pause()
+        audioPlayer.src = ''
+        audioPlayer.removeEventListener('play', onAudioPlay)
+        audioPlayer.removeEventListener('pause', onAudioPause)
+        audioPlayer.removeEventListener('ended', onAudioEnded)
+    } catch { }
     // 清理重连定时器
     if (reconnectTimer) clearTimeout(reconnectTimer)
     // 清理心跳定时器
