@@ -289,36 +289,6 @@ app.include_router(aliyun_voice_manager_router)
 def read_root():
     return {"msg": "轻语云配 后端服务运行中！"}
 
-# =========================
-# 小测试接口：插入并查询 ProjectPO
-# =========================
-@app.get("/test-db")
-def test_db():
-    session: Session = SessionLocal()
-    try:
-        # 使用时间戳生成唯一名称，避免 UNIQUE 冲突
-        name = f"测试项目_{int(datetime.now().timestamp())}"
-
-        test_project = ProjectPO(name=name, description="测试用项目")
-        session.add(test_project)
-        session.commit()
-        session.refresh(test_project)
-
-        return {
-            "msg": "插入成功",
-            "id": test_project.id,
-            "name": test_project.name,
-            "created_at": test_project.created_at,
-            "updated_at": test_project.updated_at
-        }
-
-    except Exception as e:
-        session.rollback()
-        return {"error": str(e)}
-
-    finally:
-        session.close()
-
 
 import json
 from fastapi import WebSocket, WebSocketDisconnect
