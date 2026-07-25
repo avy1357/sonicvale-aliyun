@@ -14,7 +14,12 @@ from app.repositories.multi_emotion_voice_repository import MultiEmotionVoiceRep
 from app.repositories.tts_provider_repository import TTSProviderRepository
 from app.repositories.voice_repository import VoiceRepository
 from app.services.tts_provider_service import TTSProviderService
-from app.services.voice_service import VoiceService
+from app.services.voice_service import (
+    VoiceService,
+    VoiceAlreadyExistsError,
+    VoiceConflictError,
+    VoiceNotFoundError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +52,8 @@ def process_voice_audio(dto: VoiceAudioProcessDTO, voice_service: VoiceService =
             return Res(data=None, code=400, message="处理失败")
     except FileNotFoundError as e:
         return Res(data=None, code=404, message=f"音频文件不存在: {str(e)}")
+    except ValueError as e:
+        return Res(data=None, code=400, message=str(e))
     except Exception as e:
         logger.exception("处理音色参考音频失败")
         return Res(data=None, code=500, message="处理失败:服务器内部错误")
@@ -102,6 +109,10 @@ def copy_voice(dto: VoiceCopyDTO, voice_service: VoiceService = Depends(get_voic
         )
         res = VoiceResponseDTO(**new_voice.__dict__)
         return Res(data=res, code=200, message="复制成功")
+    except VoiceNotFoundError as e:
+        return Res(data=None, code=404, message=str(e))
+    except VoiceAlreadyExistsError as e:
+        return Res(data=None, code=400, message=str(e))
     except ValueError as e:
         return Res(data=None, code=400, message=str(e))
     except Exception as e:
@@ -125,7 +136,7 @@ def get_all_voices(tts_provider_id: int, voice_service: VoiceService = Depends(g
              summary="创建音色",
              description="根据项目ID创建音色，音色名称在同一项目下不可重复" )
 def create_voice(dto: VoiceCreateDTO, voice_service: VoiceService = Depends(get_voice_service),
-                   tts_provider_service: TTSProviderService = Depends(get_tts_provider_service)):
+                  tts_provider_service: TTSProviderService = Depends(get_tts_provider_service)):
     """创建音色"""
     try:
         # DTO → Entity
@@ -135,17 +146,15 @@ def create_voice(dto: VoiceCreateDTO, voice_service: VoiceService = Depends(get_
 
         if tts_provider is None:
             return Res(data=None, code=400, message=f"tts服务提供商 '{dto.tts_provider_id}' 不存在")
-        # 调用 Service 创建项目（返回 True/False）
+        # 调用 Service 创建音色(重名会抛 VoiceAlreadyExistsError)
         entityRes = voice_service.create_voice(entity)
 
         # 返回统一 Response
-        if entityRes is not None:
-            # 创建成功，可以返回 DTO 或者部分字段
-            res = VoiceResponseDTO(**entityRes.__dict__)
-            return Res(data=res, code=200, message="创建成功")
-        else:
-            return Res(data=None, code=400, message=f"音色 '{entity.name}' 已存在")
+        res = VoiceResponseDTO(**entityRes.__dict__)
+        return Res(data=res, code=200, message="创建成功")
 
+    except VoiceAlreadyExistsError as e:
+        return Res(data=None, code=400, message=str(e))
     except ValueError as e:
         return Res(data=None, code=400, message=str(e))
     except Exception as e:
@@ -168,19 +177,21 @@ def get_voice(voice_id: int, voice_service: VoiceService = Depends(get_voice_ser
 
 
 # 修改，传入的参数是id
-@router.put("/{voice_id}", response_model=Res[VoiceCreateDTO],
+@router.put("/{voice_id}", response_model=Res[VoiceResponseDTO],
             summary="修改音色信息",
             description="根据音色id修改音色信息,并且不能修改项目id")
 def update_voice(voice_id: int, dto: VoiceCreateDTO, voice_service: VoiceService = Depends(get_voice_service)):
+    """更新音色:不在路由层重复查询,统一由 service 校验并抛业务异常"""
     try:
-        voice = voice_service.get_voice(voice_id)
-        if voice is None:
-            return Res(data=None, code=404, message="音色不存在")
-        res = voice_service.update_voice(voice_id, dto.dict())
-        if res:
-            return Res(data=dto, code=200, message="修改成功")
-        else:
-            return Res(data=None, code=400, message="修改失败")
+        updated = voice_service.update_voice(voice_id, dto.dict())
+        res = VoiceResponseDTO(**updated.__dict__)
+        return Res(data=res, code=200, message="修改成功")
+    except VoiceNotFoundError as e:
+        return Res(data=None, code=404, message=str(e))
+    except VoiceAlreadyExistsError as e:
+        return Res(data=None, code=400, message=str(e))
+    except VoiceConflictError as e:
+        return Res(data=None, code=400, message=str(e))
     except Exception as e:
         logger.exception("修改音色失败")
         return Res(data=None, code=500, message="修改失败:服务器内部错误")
