@@ -2,6 +2,7 @@ import logging
 from typing import Optional, List
 from sqlalchemy.orm import Session
 from app.core.aliyun_voice_clone_client import AliyunVoiceCloneClient
+from app.core.url_security import validate_public_url
 from app.services.tts_provider_service import TTSProviderService
 
 
@@ -57,7 +58,7 @@ class AliyunVoiceCloneService:
                     enable_preprocess: Optional[bool] = None) -> str:
         """
         创建阿里云音色
-        
+
         :param tts_provider_id: TTS 提供商 ID
         :param target_model: 驱动音色的语音合成模型
         :param prefix: 音色名称前缀
@@ -67,6 +68,8 @@ class AliyunVoiceCloneService:
         :param enable_preprocess: 是否开启预处理
         :return: 音色 ID
         """
+        # SSRF 防护:校验 URL 必须为公网地址
+        validate_public_url(url)
         client = self._get_client(tts_provider_id)
         return client.create_voice(
             target_model=target_model,
@@ -76,19 +79,21 @@ class AliyunVoiceCloneService:
             max_prompt_audio_length=max_prompt_audio_length,
             enable_preprocess=enable_preprocess
         )
-    
+
     def update_voice(self, tts_provider_id: int, voice_id: str, url: str,
                    language_hints: Optional[List[str]] = None,
                    max_prompt_audio_length: Optional[float] = None,
                    enable_preprocess: Optional[bool] = None) -> bool:
         """
         更新阿里云音色
-        
+
         :param tts_provider_id: TTS 提供商 ID
         :param voice_id: 音色 ID
         :param url: 新的音频文件URL
         :return: 是否成功
         """
+        # SSRF 防护:校验 URL 必须为公网地址
+        validate_public_url(url)
         client = self._get_client(tts_provider_id)
         return client.update_voice(
             voice_id=voice_id,

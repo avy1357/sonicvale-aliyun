@@ -16,6 +16,26 @@ from app.core.response import Res
 
 # 可选 API Key 认证：仅当环境变量 SVC_API_KEY 设置时启用
 SVC_API_KEY = os.getenv("SVC_API_KEY")
+# 若 SVC_REQUIRE_AUTH=true,则未设置 SVC_API_KEY 时拒绝启动
+SVC_REQUIRE_AUTH = os.getenv("SVC_REQUIRE_AUTH", "").lower() in ("1", "true", "yes")
+# 允许的本地回环地址白名单(用于未启用 API Key 时校验请求来源)
+_LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}
+
+
+def _warn_no_auth():
+    """未启用 API Key 认证时打印显著警告"""
+    logging.warning("=" * 72)
+    logging.warning("⚠️  安全警告:未设置 SVC_API_KEY 环境变量,所有接口无认证")
+    logging.warning("⚠️  此模式仅适用于本地单用户桌面场景")
+    logging.warning("⚠️  如部署到服务器或多人环境,务必设置 SVC_API_KEY")
+    logging.warning("⚠️  强制认证可设置 SVC_REQUIRE_AUTH=true(未设置 key 时拒绝启动)")
+    logging.warning("=" * 72)
+
+
+if not SVC_API_KEY:
+    if SVC_REQUIRE_AUTH:
+        raise RuntimeError("SVC_REQUIRE_AUTH=true 但未设置 SVC_API_KEY,拒绝启动")
+    _warn_no_auth()
 
 from app.core.config import getConfigPath
 from app.core.prompts import get_prompt_str
@@ -95,13 +115,12 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
     - HTTP 请求需携带 Authorization: Bearer <SVC_API_KEY>
     - WebSocket 请求需在 query 中携带 api_key=<SVC_API_KEY>
     - 放行 OPTIONS 预检请求与健康检查接口 GET /
-    未设置环境变量时完全跳过，保持本地桌面使用向后兼容。
+    未设置环境变量时:
+    - 放行本机回环来源(127.0.0.1/localhost/::1)
+    - 拒绝非本机来源,防止同机恶意网页跨域访问或远程未授权访问
     """
 
     async def dispatch(self, request: Request, call_next):
-        if not SVC_API_KEY:
-            return await call_next(request)
-
         # 放行 CORS 预检
         if request.method == "OPTIONS":
             return await call_next(request)
@@ -112,6 +131,34 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         if path == "/" and request.method == "GET":
             return await call_next(request)
 
+        if not SVC_API_KEY:
+            # 未启用 API Key:校验请求来源必须是本机回环
+            # 优先看 Host 头(去掉端口),再看 Origin
+            host_header = (request.headers.get("Host") or "").split(":")[0].lower()
+            origin = request.headers.get("Origin") or ""
+            if origin:
+                # Origin 形如 http://127.0.0.1:5173,提取 host
+                try:
+                    from urllib.parse import urlparse
+                    host_header = urlparse(origin).hostname.lower() or host_header
+                except Exception:
+                    pass
+            client = request.client.host if request.client else ""
+            # 客户端 IP 必须是回环,且 Host/Origin 也必须是回环
+            is_local_client = client in _LOCAL_HOSTS or client == "::ffff:127.0.0.1"
+            is_local_host = not host_header or host_header in _LOCAL_HOSTS
+            if not (is_local_client and is_local_host):
+                logging.warning(
+                    "拒绝非本机访问(未启用认证): client=%s host=%s origin=%s path=%s",
+                    client, host_header, origin, path
+                )
+                return JSONResponse(
+                    status_code=403,
+                    content=Res(code=403, message="未启用认证,仅允许本机访问。如需远程访问请设置 SVC_API_KEY", data=None).dict(),
+                )
+            return await call_next(request)
+
+        # 已启用 API Key:校验 token
         # WebSocket：通过 query 参数校验
         if path == "/ws":
             token = request.query_params.get("api_key")

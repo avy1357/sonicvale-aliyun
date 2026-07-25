@@ -96,29 +96,72 @@ class ChapterService:
         return True
 
     def delete_chapter(self, chapter_id: int) -> bool:
-        """删除章节
-        """
-        db = SessionLocal()
-        try :
-            chapter = self.repository.get_by_id(chapter_id)
+        """删除章节(含资源文件)
 
-        #     移除资源内容
-            # 删除该路径所有内容
+        改进:
+        - 路径白名单校验:chapter_path 必须在 project_root_path 下
+        - 使用注入 repository 的 db session,统一事务
+        - 文件操作放在 DB 提交后,避免数据已删但文件残留导致的回滚困难
+        """
+        from app.core.path_security import validate_path_within_root
+        from app.core.config import getConfigPath
+
+        chapter = self.repository.get_by_id(chapter_id)
+        if not chapter:
+            return False
+
+        # 1. 路径白名单校验,准备 chapter_path
+        chapter_path = None
+        try:
+            db = self.repository.db  # 复用注入的 session
             project_repository = ProjectRepository(db)
             project = project_repository.get_by_id(chapter.project_id)
-            chapter_path = os.path.join(project.project_root_path, str(chapter.project_id), str(chapter_id))
-            if os.path.exists(chapter_path):
-                shutil.rmtree(chapter_path)  # 删除整个文件夹及其所有内容
-                logging.info("已删除目录及内容: %s", chapter_path)
-            else:
-                logging.info("目录不存在: %s", chapter_path)
-            #     先删除资源，再删除记录
-            res = self.repository.delete(chapter_id)
-            # 删除章节下所有台词
+            if project and project.project_root_path:
+                # project_root_path 必须在用户目录的 SonicVale 下
+                root = getConfigPath()
+                try:
+                    validate_path_within_root(project.project_root_path, root)
+                except ValueError:
+                    logging.warning(
+                        "项目根路径超出允许范围,跳过文件删除: %s",
+                        project.project_root_path,
+                    )
+                else:
+                    chapter_path = os.path.join(
+                        project.project_root_path, str(chapter.project_id), str(chapter_id)
+                    )
+                    try:
+                        validate_path_within_root(chapter_path, project.project_root_path)
+                    except ValueError:
+                        logging.warning("章节路径超出根目录,跳过文件删除: %s", chapter_path)
+                        chapter_path = None
+        except Exception as e:
+            logging.exception("校验章节路径失败: %s", e)
+
+        # 2. DB 操作:统一事务
+        #    LinePO.chapter_id ondelete=CASCADE,删除 chapter 时 lines 会被自动级联删除
+        #    这里显式删除一次,兼容未启用外键约束的旧库
+        try:
+            db = self.repository.db
             line_repository = LineRepository(db)
-            line_res = line_repository.delete_all_by_chapter_id(chapter_id)
-        finally:
-            db.close()
+            line_repository.delete_all_by_chapter_id(chapter_id)
+            res = self.repository.delete(chapter_id)
+        except Exception as e:
+            logging.exception("删除章节 DB 操作失败: %s", e)
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            raise
+
+        # 3. 文件操作(DB 已提交后)
+        if chapter_path and os.path.exists(chapter_path):
+            try:
+                shutil.rmtree(chapter_path)
+                logging.info("已删除目录及内容: %s", chapter_path)
+            except Exception as e:
+                logging.exception("删除章节目录失败(数据已清,文件残留): %s", e)
+
         return res
 
     # 先获取章节内容

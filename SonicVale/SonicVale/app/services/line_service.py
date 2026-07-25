@@ -7,7 +7,6 @@ import subprocess
 import sys
 import tempfile
 import threading
-from collections import defaultdict
 from typing import List
 
 from openpyxl import Workbook
@@ -37,7 +36,25 @@ import soundfile as sf
 
 def _lock_key(path: str) -> str:
     return hashlib.md5(path.encode("utf-8")).hexdigest()
-_file_locks = defaultdict(threading.Lock)
+
+# 文件锁管理:使用全局 guard lock + 普通字典,避免 defaultdict.__missing__ 的竞态
+# (defaultdict 在多线程下可能各自创建新 Lock,导致锁完全失效)
+_file_locks_guard = threading.Lock()
+_file_locks: dict = {}
+
+
+def _get_file_lock(path: str) -> threading.Lock:
+    """线程安全地获取路径对应的文件锁。
+
+    使用全局 guard lock 保护字典访问,确保同一 path 始终拿到同一个 Lock 对象。
+    """
+    key = _lock_key(path)
+    with _file_locks_guard:
+        lock = _file_locks.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _file_locks[key] = lock
+        return lock
 class LineService:
 
     def __init__(self, repository: LineRepository,role_repository: RoleRepository,tts_provider_repository: TTSProviderRepository, llm_provider_repository: LLMProviderRepository = None):
@@ -171,8 +188,7 @@ class LineService:
         if not reference_path:
             raise Exception("参考音频路径未设置，请检查角色音色配置")
 
-        key = _lock_key(reference_path)
-        lock = _file_locks[key]
+        lock = _get_file_lock(reference_path)
 
         with lock:
             try:
@@ -345,37 +361,42 @@ class LineService:
                                          dir=os.path.dirname(target_path) or ".") as tmp:
             tmp_path = tmp.name
 
-        # 构建 ffmpeg 命令
-        filter_chain = [f"atempo={speed}"]
-        if abs(volume - 1.0) > 1e-6:
-            filter_chain.append(f"volume={volume}")
+        try:
+            # 构建 ffmpeg 命令
+            filter_chain = [f"atempo={speed}"]
+            if abs(volume - 1.0) > 1e-6:
+                filter_chain.append(f"volume={volume}")
 
-        cmd = [ffmpeg_path, "-y"]
-        if start_ms is not None:
-            cmd.extend(["-ss", str(start_ms / 1000)])
-        cmd.extend(["-i", audio_path])
-        if end_ms is not None:
-            cmd.extend(["-to", str(end_ms / 1000)])
-        cmd.extend([
-            "-af", ",".join(filter_chain),
-            "-ar", str(target_sr),
-            "-ac", str(target_ch),
-            "-c:a", "pcm_s16le",
-            tmp_path
-        ])
+            cmd = [ffmpeg_path, "-y"]
+            if start_ms is not None:
+                cmd.extend(["-ss", str(start_ms / 1000)])
+            cmd.extend(["-i", audio_path])
+            if end_ms is not None:
+                cmd.extend(["-to", str(end_ms / 1000)])
+            cmd.extend([
+                "-af", ",".join(filter_chain),
+                "-ar", str(target_sr),
+                "-ac", str(target_ch),
+                "-c:a", "pcm_s16le",
+                tmp_path
+            ])
 
-        subprocess.run(cmd, check=True,
-                       creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
+            subprocess.run(cmd, check=True,
+                           creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
 
-        # 软限幅：避免 clipping
-        data, sr = sf.read(tmp_path, dtype="float32", always_2d=True)
-        peak = float(np.max(np.abs(data)))
-        if peak > 1.0:
-            data = data / peak
-            sf.write(tmp_path, data, sr, format="WAV", subtype="PCM_16")
+            # 软限幅：避免 clipping
+            data, sr = sf.read(tmp_path, dtype="float32", always_2d=True)
+            peak = float(np.max(np.abs(data)))
+            if peak > 1.0:
+                data = data / peak
+                sf.write(tmp_path, data, sr, format="WAV", subtype="PCM_16")
 
-        os.replace(tmp_path, target_path)
-        return target_path
+            os.replace(tmp_path, target_path)
+            return target_path
+        finally:
+            # 确保临时文件被清理(若 os.replace 已成功移动,则 suppress FileNotFoundError)
+            with contextlib.suppress(FileNotFoundError):
+                os.remove(tmp_path)
 
 
     # 删除区间进行拼接
@@ -418,173 +439,131 @@ class LineService:
                                          dir=os.path.dirname(target_path) or ".") as tmp:
             tmp_path = tmp.name
 
-        # 构建 ffmpeg 命令
-        if start_ms is None or end_ms is None or end_ms <= start_ms:
-            # 无剪切
-            if silence_sec > 0:
-                # 添加静音
-                cmd = [
-                    ffmpeg_path, "-y",
-                    "-i", audio_path,
-                    "-f", "lavfi", "-t", str(silence_sec),
-                    "-i", f"anullsrc=channel_layout={'stereo' if target_ch == 2 else 'mono'}:sample_rate={target_sr}",
-                    "-filter_complex",
-                    f"[0:a]atempo={speed},volume={volume}[main];"
-                    f"[main][1:a]concat=n=2:v=0:a=1[out]",
-                    "-map", "[out]",
-                    "-ar", str(target_sr),
-                    "-ac", str(target_ch),
-                    "-c:a", "pcm_s16le",
-                    tmp_path
-                ]
-            elif silence_sec < 0:
-                # 裁掉末尾 abs(silence_sec)
-                cut_dur = info.duration + silence_sec
-                if cut_dur <= 0:
-                    cut_dur = 0  # 整段裁掉
+        try:
+            # 构建 ffmpeg 命令
+            if start_ms is None or end_ms is None or end_ms <= start_ms:
+                # 无剪切
+                if silence_sec > 0:
+                    # 添加静音
+                    cmd = [
+                        ffmpeg_path, "-y",
+                        "-i", audio_path,
+                        "-f", "lavfi", "-t", str(silence_sec),
+                        "-i", f"anullsrc=channel_layout={'stereo' if target_ch == 2 else 'mono'}:sample_rate={target_sr}",
+                        "-filter_complex",
+                        f"[0:a]atempo={speed},volume={volume}[main];"
+                        f"[main][1:a]concat=n=2:v=0:a=1[out]",
+                        "-map", "[out]",
+                        "-ar", str(target_sr),
+                        "-ac", str(target_ch),
+                        "-c:a", "pcm_s16le",
+                        tmp_path
+                    ]
+                elif silence_sec < 0:
+                    # 裁掉末尾 abs(silence_sec)
+                    cut_dur = info.duration + silence_sec
+                    if cut_dur <= 0:
+                        cut_dur = 0  # 整段裁掉
 
-                cmd = [
-                    ffmpeg_path, "-y",
-                    "-i", audio_path,
-                    "-filter_complex",
-                    f"[0:a]atempo={speed},volume={volume},atrim=0:{cut_dur}[out]",
-                    "-map", "[out]",
-                    "-ar", str(target_sr),
-                    "-ac", str(target_ch),
-                    "-c:a", "pcm_s16le",
-                    tmp_path
-                ]
-            else:
-                # 不处理末尾
-                cmd = [
-                    ffmpeg_path, "-y", "-i", audio_path,
-                    "-af", f"atempo={speed},volume={volume}",
-                    "-ar", str(target_sr),
-                    "-ac", str(target_ch),
-                    "-c:a", "pcm_s16le",
-                    tmp_path
-                ]
-
-
-        else:
-
-            # 剪切
-
-            start_sec = start_ms / 1000
-
-            end_sec = end_ms / 1000
-
-            if silence_sec > 0:
-
-                # 拼接 + 添加静音
-
-                cmd = [
-
-                    ffmpeg_path, "-y",
-
-                    "-i", audio_path,
-
-                    "-f", "lavfi", "-t", str(silence_sec),
-
-                    "-i", f"anullsrc=channel_layout={'stereo' if target_ch == 2 else 'mono'}:sample_rate={target_sr}",
-
-                    "-filter_complex",
-
-                    f"[0:a]atrim=0:{start_sec},asetpts=PTS-STARTPTS[first];"
-
-                    f"[0:a]atrim={end_sec},asetpts=PTS-STARTPTS[second];"
-
-                    f"[first][second]concat=n=2:v=0:a=1,atempo={speed},volume={volume}[main];"
-
-                    f"[main][1:a]concat=n=2:v=0:a=1[out]",
-
-                    "-map", "[out]",
-
-                    "-ar", str(target_sr),
-
-                    "-ac", str(target_ch),
-
-                    "-c:a", "pcm_s16le",
-
-                    tmp_path
-
-                ]
-
-            elif silence_sec < 0:
-
-                # 拼接后再裁掉末尾
-
-                cut_dur = info.duration + silence_sec
-                if cut_dur <= 0:
-                    cut_dur = 0  # 整段裁掉
-
-                cmd = [
-
-                    ffmpeg_path, "-y", "-i", audio_path,
-
-                    "-filter_complex",
-
-                    f"[0:a]atrim=0:{start_sec},asetpts=PTS-STARTPTS[first];"
-
-                    f"[0:a]atrim={end_sec},asetpts=PTS-STARTPTS[second];"
-
-                    f"[first][second]concat=n=2:v=0:a=1,atempo={speed},volume={volume},atrim=0:{cut_dur}[out]",
-
-                    "-map", "[out]",
-
-                    "-ar", str(target_sr),
-
-                    "-ac", str(target_ch),
-
-                    "-c:a", "pcm_s16le",
-
-                    tmp_path
-
-                ]
+                    cmd = [
+                        ffmpeg_path, "-y",
+                        "-i", audio_path,
+                        "-filter_complex",
+                        f"[0:a]atempo={speed},volume={volume},atrim=0:{cut_dur}[out]",
+                        "-map", "[out]",
+                        "-ar", str(target_sr),
+                        "-ac", str(target_ch),
+                        "-c:a", "pcm_s16le",
+                        tmp_path
+                    ]
+                else:
+                    # 不处理末尾
+                    cmd = [
+                        ffmpeg_path, "-y", "-i", audio_path,
+                        "-af", f"atempo={speed},volume={volume}",
+                        "-ar", str(target_sr),
+                        "-ac", str(target_ch),
+                        "-c:a", "pcm_s16le",
+                        tmp_path
+                    ]
 
             else:
+                # 剪切
+                start_sec = start_ms / 1000
+                end_sec = end_ms / 1000
 
-                # 拼接但不处理末尾
+                if silence_sec > 0:
+                    # 拼接 + 添加静音
+                    cmd = [
+                        ffmpeg_path, "-y",
+                        "-i", audio_path,
+                        "-f", "lavfi", "-t", str(silence_sec),
+                        "-i", f"anullsrc=channel_layout={'stereo' if target_ch == 2 else 'mono'}:sample_rate={target_sr}",
+                        "-filter_complex",
+                        f"[0:a]atrim=0:{start_sec},asetpts=PTS-STARTPTS[first];"
+                        f"[0:a]atrim={end_sec},asetpts=PTS-STARTPTS[second];"
+                        f"[first][second]concat=n=2:v=0:a=1,atempo={speed},volume={volume}[main];"
+                        f"[main][1:a]concat=n=2:v=0:a=1[out]",
+                        "-map", "[out]",
+                        "-ar", str(target_sr),
+                        "-ac", str(target_ch),
+                        "-c:a", "pcm_s16le",
+                        tmp_path
+                    ]
 
-                cmd = [
+                elif silence_sec < 0:
+                    # 拼接后再裁掉末尾
+                    cut_dur = info.duration + silence_sec
+                    if cut_dur <= 0:
+                        cut_dur = 0  # 整段裁掉
 
-                    ffmpeg_path, "-y", "-i", audio_path,
+                    cmd = [
+                        ffmpeg_path, "-y", "-i", audio_path,
+                        "-filter_complex",
+                        f"[0:a]atrim=0:{start_sec},asetpts=PTS-STARTPTS[first];"
+                        f"[0:a]atrim={end_sec},asetpts=PTS-STARTPTS[second];"
+                        f"[first][second]concat=n=2:v=0:a=1,atempo={speed},volume={volume},atrim=0:{cut_dur}[out]",
+                        "-map", "[out]",
+                        "-ar", str(target_sr),
+                        "-ac", str(target_ch),
+                        "-c:a", "pcm_s16le",
+                        tmp_path
+                    ]
 
-                    "-filter_complex",
+                else:
+                    # 拼接但不处理末尾
+                    cmd = [
+                        ffmpeg_path, "-y", "-i", audio_path,
+                        "-filter_complex",
+                        f"[0:a]atrim=0:{start_sec},asetpts=PTS-STARTPTS[first];"
+                        f"[0:a]atrim={end_sec},asetpts=PTS-STARTPTS[second];"
+                        f"[first][second]concat=n=2:v=0:a=1,atempo={speed},volume={volume}[out]",
+                        "-map", "[out]",
+                        "-ar", str(target_sr),
+                        "-ac", str(target_ch),
+                        "-c:a", "pcm_s16le",
+                        tmp_path
+                    ]
 
-                    f"[0:a]atrim=0:{start_sec},asetpts=PTS-STARTPTS[first];"
+            # 执行 ffmpeg
+            subprocess.run(
+                cmd, check=True,
+                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+            )
 
-                    f"[0:a]atrim={end_sec},asetpts=PTS-STARTPTS[second];"
+            # 软限幅：避免 clipping
+            data, sr = sf.read(tmp_path, dtype="float32", always_2d=True)
+            peak = float(np.max(np.abs(data)))
+            if peak > 1.0:
+                data = data / peak
+                sf.write(tmp_path, data, sr, format="WAV", subtype="PCM_16")
 
-                    f"[first][second]concat=n=2:v=0:a=1,atempo={speed},volume={volume}[out]",
-
-                    "-map", "[out]",
-
-                    "-ar", str(target_sr),
-
-                    "-ac", str(target_ch),
-
-                    "-c:a", "pcm_s16le",
-
-                    tmp_path
-
-                ]
-
-        # 执行 ffmpeg
-        subprocess.run(
-            cmd, check=True,
-            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
-        )
-
-        # 软限幅：避免 clipping
-        data, sr = sf.read(tmp_path, dtype="float32", always_2d=True)
-        peak = float(np.max(np.abs(data)))
-        if peak > 1.0:
-            data = data / peak
-            sf.write(tmp_path, data, sr, format="WAV", subtype="PCM_16")
-
-        os.replace(tmp_path, target_path)
-        return target_path
+            os.replace(tmp_path, target_path)
+            return target_path
+        finally:
+            # 确保临时文件被清理(若 os.replace 已成功移动,则 suppress FileNotFoundError)
+            with contextlib.suppress(FileNotFoundError):
+                os.remove(tmp_path)
 
     def process_audio(self, line_id, dto:LineAudioProcessDTO):
         line = self.get_line(line_id)

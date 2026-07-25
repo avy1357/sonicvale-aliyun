@@ -8,6 +8,7 @@ from typing import List
 from sqlalchemy.orm import Session
 
 from app.core.config import getConfigPath
+from app.core.path_security import validate_path_within_root
 from app.core.response import Res
 from app.db.database import get_db
 from app.dto.project_dto import ProjectCreateDTO, ProjectResponseDTO, ProjectImportDTO
@@ -114,29 +115,63 @@ def update_project(project_id: int, dto: ProjectCreateDTO, service: ProjectServi
                description="根据项目ID删除项目,并且级联删除项目下所有章节以及内容")
 def delete_project(project_id: int, service: ProjectService = Depends(get_service), chapter_service: ChapterService = Depends(get_chapter_service),role_service: RoleService = Depends(get_role_service)):
 
-    # 级联删除项目所有相关内容，比如项目下所有章节以及内容
-    entities = chapter_service.get_all_chapters(project_id)
-    for entity in entities:
-        chapter_service.delete_chapter(entity.id)
-    #     删除project目录
-    project = service.get_project(project_id)
+    try:
+        # 1. 先查项目,不存在直接返回 404
+        project = service.get_project(project_id)
+        if not project:
+            return Res(data=None, code=404, message="项目不存在")
 
-    project_path = os.path.join(project.project_root_path, str(project_id))
-    if os.path.exists(project_path):
-        shutil.rmtree(project_path)  # 删除整个文件夹及其所有内容
-        logging.info("已删除目录及内容: %s", project_path)
-    else:
-        logging.info("目录不存在: %s", project_path)
+        # 2. 路径白名单校验:project_root_path 必须在用户目录的 SonicVale 下
+        #    防止被污染的路径导致任意目录被删
+        root = getConfigPath()
+        try:
+            validate_path_within_root(project.project_root_path, root)
+        except ValueError as e:
+            logging.warning("拒绝删除项目 %s,根路径超出允许范围: %s", project_id, project.project_root_path)
+            return Res(data=None, code=400, message=f"项目根路径非法,拒绝删除")
 
-    # 还要删除角色库中projet下的所有角色
-    roles = role_service.get_all_roles(project_id)
-    for role in roles:
-        role_service.delete_role(role.id)
-    success = service.delete_project(project_id)
-    if success:
+        project_path = os.path.join(project.project_root_path, str(project_id))
+        try:
+            validate_path_within_root(project_path, project.project_root_path)
+        except ValueError as e:
+            return Res(data=None, code=400, message=f"项目路径非法,拒绝删除")
+
+        # 3. DB 操作:先删除章节(级联台词)、角色,最后删除项目本身
+        #    每个 service 调用各自 commit;若中间失败记日志继续,保证最终项目记录被删
+        chapters = chapter_service.get_all_chapters(project_id)
+        for chapter in chapters:
+            try:
+                chapter_service.delete_chapter(chapter.id)
+            except Exception as e:
+                logging.exception("删除章节 %s 失败(继续删除其他章节): %s", chapter.id, e)
+
+        roles = role_service.get_all_roles(project_id)
+        for role in roles:
+            try:
+                role_service.delete_role(role.id)
+            except Exception as e:
+                logging.exception("删除角色 %s 失败(继续): %s", role.id, e)
+
+        success = service.delete_project(project_id)
+        if not success:
+            return Res(data=None, code=400, message="删除失败或项目不存在")
+
+        # 4. 文件操作:DB 已提交后再删除目录
+        #    文件删除失败仅记日志,不回滚 DB(数据已清,残留目录可手动清理)
+        if os.path.exists(project_path):
+            try:
+                shutil.rmtree(project_path)
+                logging.info("已删除目录及内容: %s", project_path)
+            except Exception as e:
+                logging.exception("删除项目目录失败(数据已清,文件残留): %s", e)
+                return Res(data=None, code=200, message="项目数据已删除,但目录清理失败,请手动删除: " + project_path)
+        else:
+            logging.info("目录不存在: %s", project_path)
+
         return Res(data=None, code=200, message="删除成功")
-    else:
-        return Res(data=None, code=400, message="删除失败或项目不存在")
+    except Exception as e:
+        logging.exception("删除项目失败: %s", e)
+        return Res(data=None, code=500, message="删除失败")
 
 # 直接导入整本小说内容，然后解析，创建章节
 @router.post("/{project_id}/import")

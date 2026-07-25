@@ -3,6 +3,7 @@ from typing import Optional, List
 from sqlalchemy.orm import Session
 
 from app.core.aliyun_voice_manager_client import AliyunVoiceManagerClient
+from app.core.url_security import validate_public_url
 from app.models.po import VoicePO
 from app.services.tts_provider_service import TTSProviderService
 
@@ -81,6 +82,8 @@ class AliyunVoiceManagerService:
         :param enable_preprocess: 是否开启预处理
         :return: 音色 ID
         """
+        # SSRF 防护:校验 URL 必须为公网地址
+        validate_public_url(url)
         client = self._get_client(tts_provider_id)
         return client.create_voice(
             target_model=target_model,
@@ -106,6 +109,8 @@ class AliyunVoiceManagerService:
         :param enable_preprocess: 是否开启预处理
         :return: 是否成功
         """
+        # SSRF 防护:校验 URL 必须为公网地址
+        validate_public_url(url)
         client = self._get_client(tts_provider_id)
         return client.update_voice(
             voice_id=voice_id,
