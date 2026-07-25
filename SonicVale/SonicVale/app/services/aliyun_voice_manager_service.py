@@ -138,6 +138,8 @@ class AliyunVoiceManagerService:
         遍历阿里云平台上的所有音色，将不存在的音色创建到本地，
         已存在的音色更新描述信息。
 
+        - 整体作为一个事务,失败则回滚,保证数据一致性
+
         :param tts_provider_id: TTS 提供商 ID
         :param db: 数据库会话
         :return: 新增同步的音色数量
@@ -147,37 +149,44 @@ class AliyunVoiceManagerService:
 
         total_synced = 0
 
-        for voice in all_voices:
-            voice_id = voice.get("voice_id", "") if isinstance(voice, dict) else getattr(voice, "voice_id", "")
-            voice_name = voice.get("name", "") if isinstance(voice, dict) else getattr(voice, "name", "")
+        try:
+            for voice in all_voices:
+                voice_id = voice.get("voice_id", "") if isinstance(voice, dict) else getattr(voice, "voice_id", "")
+                voice_name = voice.get("name", "") if isinstance(voice, dict) else getattr(voice, "name", "")
 
-            if not voice_id:
-                continue
+                if not voice_id:
+                    continue
 
-            # 以 voice_id 作为 name 字段查找本地是否已存在
-            existing = db.query(VoicePO).filter(
-                VoicePO.tts_provider_id == tts_provider_id,
-                VoicePO.name == voice_id,
-            ).first()
+                # 以 voice_id 作为 name 字段查找本地是否已存在
+                existing = db.query(VoicePO).filter(
+                    VoicePO.tts_provider_id == tts_provider_id,
+                    VoicePO.name == voice_id,
+                ).first()
 
-            if not existing:
-                voice_record = VoicePO(
-                    tts_provider_id=tts_provider_id,
-                    name=voice_id,
-                    description=voice_name,
-                )
-                db.add(voice_record)
-                total_synced += 1
-            else:
-                existing.description = voice_name
+                if not existing:
+                    voice_record = VoicePO(
+                        tts_provider_id=tts_provider_id,
+                        name=voice_id,
+                        description=voice_name,
+                    )
+                    db.add(voice_record)
+                    total_synced += 1
+                else:
+                    existing.description = voice_name
 
-        db.commit()
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
+
         logging.info("阿里云音色同步完成，同步了 %d 个新音色", total_synced)
         return total_synced
 
     def sync_single_voice_to_local(self, tts_provider_id: int, voice_id: str, db: Session) -> dict:
         """
         同步单个阿里云音色到本地 voices 表
+
+        - 提交失败时回滚,保证数据一致性
 
         :param tts_provider_id: TTS 提供商 ID
         :param voice_id: 音色 ID
@@ -194,25 +203,32 @@ class AliyunVoiceManagerService:
             VoicePO.name == voice_id,
         ).first()
 
-        if not existing:
-            voice_record = VoicePO(
-                tts_provider_id=tts_provider_id,
-                name=voice_id,
-                description=voice_name,
-            )
-            db.add(voice_record)
-            db.commit()
-            logging.info("阿里云音色同步成功 (新建)，voice_id: %s", voice_id)
-            return {"status": "created", "voice_id": voice_id}
-        else:
-            existing.description = voice_name
-            db.commit()
-            logging.info("阿里云音色同步成功 (更新)，voice_id: %s", voice_id)
-            return {"status": "updated", "voice_id": voice_id}
+        try:
+            if not existing:
+                voice_record = VoicePO(
+                    tts_provider_id=tts_provider_id,
+                    name=voice_id,
+                    description=voice_name,
+                )
+                db.add(voice_record)
+                db.commit()
+                logging.info("阿里云音色同步成功 (新建)，voice_id: %s", voice_id)
+                return {"status": "created", "voice_id": voice_id}
+            else:
+                existing.description = voice_name
+                db.commit()
+                logging.info("阿里云音色同步成功 (更新)，voice_id: %s", voice_id)
+                return {"status": "updated", "voice_id": voice_id}
+        except Exception:
+            db.rollback()
+            raise
 
     def delete_voice_with_local(self, tts_provider_id: int, voice_id: str, db: Session) -> dict:
         """
         删除阿里云音色并同时删除本地记录
+
+        - 本地删除失败时回滚,保证数据一致性
+        - 云端已删除的不会回滚(无法回滚)
 
         :param tts_provider_id: TTS 提供商 ID
         :param voice_id: 音色 ID
@@ -232,10 +248,14 @@ class AliyunVoiceManagerService:
 
         local_deleted = False
         if existing:
-            db.delete(existing)
-            db.commit()
-            local_deleted = True
-            logging.info("本地音色记录已删除，voice_id: %s", voice_id)
+            try:
+                db.delete(existing)
+                db.commit()
+                local_deleted = True
+                logging.info("本地音色记录已删除，voice_id: %s", voice_id)
+            except Exception:
+                db.rollback()
+                raise
 
         return {
             "cloud_deleted": True,

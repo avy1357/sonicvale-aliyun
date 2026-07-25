@@ -6,6 +6,9 @@ from app.models.po import MultiEmotionVoicePO
 
 
 class MultiEmotionVoiceRepository:
+    # 允许通过 update 更新的字段白名单,防止主键 id、外键 voice_id/emotion_id/strength_id 等被覆盖
+    UPDATABLE_FIELDS = {"reference_path"}
+
     def __init__(self, db: Session):
         self.db = db
 
@@ -37,12 +40,13 @@ class MultiEmotionVoiceRepository:
         return multi_emotion_voice
 
     def update(self, id: int, data: dict) -> Optional[MultiEmotionVoicePO]:
-        """更新多情绪音色"""
+        """更新多情绪音色(仅允许白名单字段,防止主键/外键被覆盖)"""
         multi_emotion_voice = self.get_by_id(id)
         if not multi_emotion_voice:
             return None
         for key, value in data.items():
-            if value is not None:
+            # 只更新白名单字段,过滤 id、voice_id、emotion_id、strength_id、created_at、updated_at 等
+            if value is not None and key in self.UPDATABLE_FIELDS:
                 setattr(multi_emotion_voice, key, value)
         self.db.commit()
         self.db.refresh(multi_emotion_voice)

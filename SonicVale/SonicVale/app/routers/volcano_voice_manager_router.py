@@ -1,3 +1,4 @@
+import logging
 from typing import Optional, List
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
@@ -8,6 +9,8 @@ from app.db.database import get_db
 from app.repositories.tts_provider_repository import TTSProviderRepository
 from app.services.tts_provider_service import TTSProviderService
 from app.services.volcano_voice_manager_service import VolcanoVoiceManagerService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/volcano-voices", tags=["VolcanoVoiceManager"])
 
@@ -72,8 +75,9 @@ def batch_list_train_status(
         return Res(data=result, code=200, message="查询成功")
     except ValueError as e:
         return Res(data=None, code=400, message=str(e))
-    except Exception as e:
-        return Res(data=None, code=500, message=f"查询失败: {str(e)}")
+    except Exception:
+        logger.exception("查询火山引擎音色列表失败")
+        return Res(data=None, code=500, message="查询失败:服务器内部错误")
 
 
 @router.post("/order", response_model=Res[dict],
@@ -94,8 +98,9 @@ def order_voices(
         return Res(data=result, code=200, message="下单成功")
     except ValueError as e:
         return Res(data=None, code=400, message=str(e))
-    except Exception as e:
-        return Res(data=None, code=500, message=f"下单失败: {str(e)}")
+    except Exception:
+        logger.exception("火山引擎音色下单失败")
+        return Res(data=None, code=500, message="下单失败:服务器内部错误")
 
 
 @router.post("/renew", response_model=Res[dict],
@@ -116,8 +121,9 @@ def renew_voices(
         return Res(data=result, code=200, message="续费成功")
     except ValueError as e:
         return Res(data=None, code=400, message=str(e))
-    except Exception as e:
-        return Res(data=None, code=500, message=f"续费失败: {str(e)}")
+    except Exception:
+        logger.exception("火山引擎音色续费失败")
+        return Res(data=None, code=500, message="续费失败:服务器内部错误")
 
 
 @router.post("/sync", response_model=Res[int],
@@ -136,8 +142,9 @@ def sync_voices(
         return Res(data=count, code=200, message=f"同步成功，共同步了 {count} 个音色")
     except ValueError as e:
         return Res(data=None, code=400, message=str(e))
-    except Exception as e:
-        return Res(data=None, code=500, message=f"同步失败: {str(e)}")
+    except Exception:
+        logger.exception("同步火山引擎音色到本地失败")
+        return Res(data=None, code=500, message="同步失败:服务器内部错误")
 
 
 @router.post("/sync-single", response_model=Res[dict],
@@ -159,5 +166,6 @@ def sync_single_voice(
         return Res(data=result, code=200, message=f"同步成功，{status_msg}音色")
     except ValueError as e:
         return Res(data=None, code=400, message=str(e))
-    except Exception as e:
-        return Res(data=None, code=500, message=f"同步失败: {str(e)}")
+    except Exception:
+        logger.exception("同步单个火山引擎音色到本地失败")
+        return Res(data=None, code=500, message="同步失败:服务器内部错误")

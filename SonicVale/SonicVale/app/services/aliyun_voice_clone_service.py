@@ -120,7 +120,10 @@ class AliyunVoiceCloneService:
         return client.get_last_request_id()
 
     def sync_voices_to_local(self, tts_provider_id: int, db: Session) -> int:
-        """批量同步阿里云音色到本地 voices 表"""
+        """批量同步阿里云音色到本地 voices 表
+
+        - 整体作为一个事务,任一页失败则回滚已 add 的记录,保证数据一致性
+        """
         from app.models.po import VoicePO
 
         client = self._get_client(tts_provider_id)
@@ -128,50 +131,58 @@ class AliyunVoiceCloneService:
         page_size = 100
         total_synced = 0
 
-        while True:
-            result = client.list_voices(prefix=None, page_index=page_index, page_size=page_size)
-            voices = result.get("voices", [])
+        try:
+            while True:
+                result = client.list_voices(prefix=None, page_index=page_index, page_size=page_size)
+                voices = result.get("voices", [])
 
-            if not voices:
-                break
+                if not voices:
+                    break
 
-            for voice in voices:
-                voice_id = voice.get("voice_id", "") if isinstance(voice, dict) else getattr(voice, "voice_id", "")
-                voice_name = voice.get("name", "") if isinstance(voice, dict) else getattr(voice, "name", "")
+                for voice in voices:
+                    voice_id = voice.get("voice_id", "") if isinstance(voice, dict) else getattr(voice, "voice_id", "")
+                    voice_name = voice.get("name", "") if isinstance(voice, dict) else getattr(voice, "name", "")
 
-                if not voice_id:
-                    continue
+                    if not voice_id:
+                        continue
 
-                # 以 voice_id 作为 name 字段查找本地是否已存在
-                existing = db.query(VoicePO).filter(
-                    VoicePO.tts_provider_id == tts_provider_id,
-                    VoicePO.name == voice_id,
-                ).first()
+                    # 以 voice_id 作为 name 字段查找本地是否已存在
+                    existing = db.query(VoicePO).filter(
+                        VoicePO.tts_provider_id == tts_provider_id,
+                        VoicePO.name == voice_id,
+                    ).first()
 
-                if not existing:
-                    voice_record = VoicePO(
-                        tts_provider_id=tts_provider_id,
-                        name=voice_id,
-                        description=voice_name,
-                    )
-                    db.add(voice_record)
-                    total_synced += 1
-                else:
-                    existing.description = voice_name
+                    if not existing:
+                        voice_record = VoicePO(
+                            tts_provider_id=tts_provider_id,
+                            name=voice_id,
+                            description=voice_name,
+                        )
+                        db.add(voice_record)
+                        total_synced += 1
+                    else:
+                        existing.description = voice_name
 
-            db.commit()
+                # 每页统一提交,保证事务性
+                db.commit()
 
-            page_count = result.get("page_count", 0)
-            if page_count < page_size:
-                break
+                page_count = result.get("page_count", 0)
+                if page_count < page_size:
+                    break
 
-            page_index += 1
+                page_index += 1
+        except Exception:
+            db.rollback()
+            raise
 
         logging.info("阿里云音色同步完成，同步了 %d 个新音色", total_synced)
         return total_synced
 
     def sync_single_voice_to_local(self, tts_provider_id: int, voice_id: str, db: Session) -> dict:
-        """同步单个阿里云音色到本地 voices 表"""
+        """同步单个阿里云音色到本地 voices 表
+
+        - 提交失败时回滚,保证数据一致性
+        """
         from app.models.po import VoicePO
 
         client = self._get_client(tts_provider_id)
@@ -184,18 +195,22 @@ class AliyunVoiceCloneService:
             VoicePO.name == voice_id,
         ).first()
 
-        if not existing:
-            voice_record = VoicePO(
-                tts_provider_id=tts_provider_id,
-                name=voice_id,
-                description=voice_name,
-            )
-            db.add(voice_record)
-            db.commit()
-            logging.info("阿里云音色同步成功 (新建)，voice_id: %s", voice_id)
-            return {"status": "created", "voice_id": voice_id}
-        else:
-            existing.description = voice_name
-            db.commit()
-            logging.info("阿里云音色同步成功 (更新)，voice_id: %s", voice_id)
-            return {"status": "updated", "voice_id": voice_id}
+        try:
+            if not existing:
+                voice_record = VoicePO(
+                    tts_provider_id=tts_provider_id,
+                    name=voice_id,
+                    description=voice_name,
+                )
+                db.add(voice_record)
+                db.commit()
+                logging.info("阿里云音色同步成功 (新建)，voice_id: %s", voice_id)
+                return {"status": "created", "voice_id": voice_id}
+            else:
+                existing.description = voice_name
+                db.commit()
+                logging.info("阿里云音色同步成功 (更新)，voice_id: %s", voice_id)
+                return {"status": "updated", "voice_id": voice_id}
+        except Exception:
+            db.rollback()
+            raise

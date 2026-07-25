@@ -1,3 +1,4 @@
+import logging
 from typing import List
 
 from fastapi import APIRouter, Depends
@@ -15,6 +16,8 @@ from app.services.emotion_service import EmotionService
 from app.services.multi_emotion_voice_service import MultiEmotionVoiceService
 from app.services.strength_service import StrengthService
 from app.services.voice_service import VoiceService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/multi_emotion_voices", tags=["MultiEmotionVoice"])
 
@@ -86,24 +89,32 @@ def create_multi_emotion_voice(dto: MultiEmotionVoiceCreateDTO, multi_emotion_vo
 @router.put("/{multi_emotion_voice_id}", response_model=Res[MultiEmotionVoiceCreateDTO],summary="修改多情绪音色", description="修改多情绪音色")
 def update_multi_emotion_voice(multi_emotion_voice_id: int, dto: MultiEmotionVoiceCreateDTO, multi_emotion_voice_service: MultiEmotionVoiceService = Depends(get_multi_emotion_voice_service)):
     """修改多音色"""
-    entity = multi_emotion_voice_service.get_multi_emotion_voice_by_id(multi_emotion_voice_id)
-    if entity is None:
-        return Res(code=404, message="多音色不存在")
-    res = multi_emotion_voice_service.update_multi_emotion_voice(multi_emotion_voice_id, dto.dict(exclude_unset=True))
-    if res is None:
-        return Res(code=500, message="修改失败")
-    else:
-        entityRes = MultiEmotionVoiceResponseDTO(**entity.__dict__)
-        return Res(data=entityRes, code=200, message="修改成功")
+    try:
+        entity = multi_emotion_voice_service.get_multi_emotion_voice_by_id(multi_emotion_voice_id)
+        if entity is None:
+            return Res(code=404, message="多音色不存在")
+        res = multi_emotion_voice_service.update_multi_emotion_voice(multi_emotion_voice_id, dto.dict(exclude_unset=True))
+        if res is None:
+            return Res(code=500, message="修改失败")
+        else:
+            entityRes = MultiEmotionVoiceResponseDTO(**entity.__dict__)
+            return Res(data=entityRes, code=200, message="修改成功")
+    except Exception:
+        logger.exception("修改多情绪音色失败")
+        return Res(data=None, code=500, message="修改失败:服务器内部错误")
 
 # 删除
 @router.delete("/{multi_emotion_voice_id}", response_model=Res[MultiEmotionVoiceResponseDTO],summary="删除多情绪音色", description="删除多情绪音色")
 def delete_multi_emotion_voice(multi_emotion_voice_id: int, multi_emotion_voice_service: MultiEmotionVoiceService = Depends(get_multi_emotion_voice_service)):
     """删除多音色"""
-    res = multi_emotion_voice_service.delete_multi_emotion_voice(multi_emotion_voice_id)
-    if res:
-        return Res(data=None, code=200, message="删除成功")
-    else:
-        return Res(data=None, code=400, message="删除失败")
+    try:
+        res = multi_emotion_voice_service.delete_multi_emotion_voice(multi_emotion_voice_id)
+        if res:
+            return Res(data=None, code=200, message="删除成功")
+        else:
+            return Res(data=None, code=400, message="删除失败")
+    except Exception:
+        logger.exception("删除多情绪音色失败")
+        return Res(data=None, code=500, message="删除失败:服务器内部错误")
 
 #

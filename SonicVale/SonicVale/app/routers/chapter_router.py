@@ -249,7 +249,7 @@ async def get_lines(
             logging.error(
                 f"解析第 {idx + 1} 段失败: {e}\n{traceback.format_exc()}"
             )
-            return Res(data=None, code=500, message=f"解析失败：第 {idx + 1} 段处理出错，错误信息：{e}")
+            return Res(data=None, code=500, message=f"解析失败：第 {idx + 1} 段处理出错")
 
     try:
         audio_path = os.path.join(project.project_root_path,str(project_id),str(chapter_id),"audio")

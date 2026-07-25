@@ -5,6 +5,12 @@ from app.models.voice_clone_po import VoiceClonePO
 
 
 class VoiceCloneRepository:
+    # 允许通过 update 更新的字段白名单,防止主键 id、外键 tts_provider_id、speaker_id 等被覆盖
+    UPDATABLE_FIELDS = {
+        "name", "reference_path", "status", "description",
+        "demo_audio_url", "version",
+    }
+
     def __init__(self, db: Session):
         self.db = db
 
@@ -42,12 +48,14 @@ class VoiceCloneRepository:
         return data
 
     def update(self, clone_id: int, clone_data: dict) -> Optional[VoiceClonePO]:
-        """更新声音复刻记录"""
+        """更新声音复刻记录(仅允许白名单字段,防止主键/外键被覆盖)"""
         clone = self.get_by_id(clone_id)
         if not clone:
             return None
         for key, value in clone_data.items():
-            setattr(clone, key, value)
+            # 只更新白名单字段,过滤 id、tts_provider_id、speaker_id、created_at、updated_at 等
+            if key in self.UPDATABLE_FIELDS:
+                setattr(clone, key, value)
         self.db.commit()
         self.db.refresh(clone)
         return clone

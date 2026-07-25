@@ -1,3 +1,4 @@
+import logging
 from typing import Optional, List
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
@@ -9,6 +10,7 @@ from app.repositories.tts_provider_repository import TTSProviderRepository
 from app.services.tts_provider_service import TTSProviderService
 from app.services.aliyun_voice_manager_service import AliyunVoiceManagerService
 
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/aliyun-voice-manager", tags=["AliyunVoiceManager"])
 
@@ -73,8 +75,9 @@ def list_voices(
         return Res(data=result, code=200, message="查询成功")
     except ValueError as e:
         return Res(data=None, code=400, message=str(e))
-    except Exception as e:
-        return Res(data=None, code=500, message=f"查询失败: {str(e)}")
+    except Exception:
+        logger.exception("查询阿里云音色列表失败")
+        return Res(data=None, code=500, message="查询失败:服务器内部错误")
 
 
 @router.get("/detail", response_model=Res[dict],
@@ -90,8 +93,9 @@ def query_voice(
         return Res(data=result, code=200, message="查询成功")
     except ValueError as e:
         return Res(data=None, code=400, message=str(e))
-    except Exception as e:
-        return Res(data=None, code=500, message=f"查询失败: {str(e)}")
+    except Exception:
+        logger.exception("获取阿里云音色详情失败")
+        return Res(data=None, code=500, message="查询失败:服务器内部错误")
 
 
 @router.post("/create", response_model=Res[dict],
@@ -114,8 +118,9 @@ def create_voice(
         return Res(data={"voice_id": voice_id}, code=200, message="创建成功")
     except ValueError as e:
         return Res(data=None, code=400, message=str(e))
-    except Exception as e:
-        return Res(data=None, code=500, message=f"创建失败: {str(e)}")
+    except Exception:
+        logger.exception("创建阿里云音色失败")
+        return Res(data=None, code=500, message="创建失败:服务器内部错误")
 
 
 @router.put("/update", response_model=Res[bool],
@@ -137,8 +142,9 @@ def update_voice(
         return Res(data=True, code=200, message="更新成功")
     except ValueError as e:
         return Res(data=None, code=400, message=str(e))
-    except Exception as e:
-        return Res(data=None, code=500, message=f"更新失败: {str(e)}")
+    except Exception:
+        logger.exception("更新阿里云音色失败")
+        return Res(data=None, code=500, message="更新失败:服务器内部错误")
 
 
 @router.delete("/delete", response_model=Res[dict],
@@ -168,8 +174,9 @@ def delete_voice(
         return Res(data=result, code=200, message="删除成功")
     except ValueError as e:
         return Res(data=None, code=400, message=str(e))
-    except Exception as e:
-        return Res(data=None, code=500, message=f"删除失败: {str(e)}")
+    except Exception:
+        logger.exception("删除阿里云音色失败")
+        return Res(data=None, code=500, message="删除失败:服务器内部错误")
 
 
 @router.post("/sync", response_model=Res[int],
@@ -188,8 +195,9 @@ def sync_voices(
         return Res(data=count, code=200, message=f"同步成功，共同步了 {count} 个音色")
     except ValueError as e:
         return Res(data=None, code=400, message=str(e))
-    except Exception as e:
-        return Res(data=None, code=500, message=f"同步失败: {str(e)}")
+    except Exception:
+        logger.exception("同步阿里云音色到本地失败")
+        return Res(data=None, code=500, message="同步失败:服务器内部错误")
 
 
 @router.post("/sync-single", response_model=Res[dict],
@@ -211,5 +219,6 @@ def sync_single_voice(
         return Res(data=result, code=200, message=f"同步成功，{status_msg}音色")
     except ValueError as e:
         return Res(data=None, code=400, message=str(e))
-    except Exception as e:
-        return Res(data=None, code=500, message=f"同步失败: {str(e)}")
+    except Exception:
+        logger.exception("同步单个阿里云音色到本地失败")
+        return Res(data=None, code=500, message="同步失败:服务器内部错误")

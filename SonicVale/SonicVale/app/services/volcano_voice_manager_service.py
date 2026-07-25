@@ -101,58 +101,71 @@ class VolcanoVoiceManagerService:
         )
 
     def sync_voices_to_local(self, tts_provider_id: int, db: Session) -> int:
+        """批量同步火山引擎音色到本地
+
+        - 整体作为一个事务,任一页失败则回滚,保证数据一致性
+        """
         client = self._get_volcano_client(tts_provider_id)
 
         page_number = 1
         page_size = 100
         total_synced = 0
 
-        while True:
-            result = client.batch_list_train_status(
-                page_number=page_number,
-                page_size=page_size,
-            )
+        try:
+            while True:
+                result = client.batch_list_train_status(
+                    page_number=page_number,
+                    page_size=page_size,
+                )
 
-            statuses = result.get("Result", {}).get("Statuses", [])
+                statuses = result.get("Result", {}).get("Statuses", [])
 
-            if not statuses:
-                break
+                if not statuses:
+                    break
 
-            for status in statuses:
-                speaker_id = status.get("SpeakerID", "")
-                alias = status.get("Alias", "")
+                for status in statuses:
+                    speaker_id = status.get("SpeakerID", "")
+                    alias = status.get("Alias", "")
 
-                if not speaker_id:
-                    continue
+                    if not speaker_id:
+                        continue
 
-                existing = db.query(VoicePO).filter(
-                    VoicePO.tts_provider_id == tts_provider_id,
-                    VoicePO.name == speaker_id,
-                ).first()
+                    existing = db.query(VoicePO).filter(
+                        VoicePO.tts_provider_id == tts_provider_id,
+                        VoicePO.name == speaker_id,
+                    ).first()
 
-                if not existing:
-                    voice = VoicePO(
-                        tts_provider_id=tts_provider_id,
-                        name=speaker_id,
-                        description=alias,
-                    )
-                    db.add(voice)
-                    total_synced += 1
-                else:
-                    existing.description = alias
+                    if not existing:
+                        voice = VoicePO(
+                            tts_provider_id=tts_provider_id,
+                            name=speaker_id,
+                            description=alias,
+                        )
+                        db.add(voice)
+                        total_synced += 1
+                    else:
+                        existing.description = alias
 
-            db.commit()
+                # 每页统一提交,保证事务性
+                db.commit()
 
-            total_count = result.get("Result", {}).get("TotalCount", 0)
-            if page_number * page_size >= total_count:
-                break
+                total_count = result.get("Result", {}).get("TotalCount", 0)
+                if page_number * page_size >= total_count:
+                    break
 
-            page_number += 1
+                page_number += 1
+        except Exception:
+            db.rollback()
+            raise
 
         logging.info("火山引擎音色同步完成，同步了 %d 个新音色", total_synced)
         return total_synced
 
     def sync_single_voice_to_local(self, tts_provider_id: int, speaker_id: str, db: Session) -> dict:
+        """同步单个火山引擎音色到本地
+
+        - 提交失败时回滚,保证数据一致性
+        """
         client = self._get_volcano_client(tts_provider_id)
         result = client.batch_list_train_status(
             speaker_ids=[speaker_id],
@@ -173,18 +186,22 @@ class VolcanoVoiceManagerService:
             VoicePO.name == speaker_id,
         ).first()
 
-        if not existing:
-            voice = VoicePO(
-                tts_provider_id=tts_provider_id,
-                name=speaker_id,
-                description=alias,
-            )
-            db.add(voice)
-            db.commit()
-            logging.info("火山引擎音色同步成功 (新建)，SpeakerID: %s", speaker_id)
-            return {"status": "created", "speaker_id": speaker_id}
-        else:
-            existing.description = alias
-            db.commit()
-            logging.info("火山引擎音色同步成功 (更新)，SpeakerID: %s", speaker_id)
-            return {"status": "updated", "speaker_id": speaker_id}
+        try:
+            if not existing:
+                voice = VoicePO(
+                    tts_provider_id=tts_provider_id,
+                    name=speaker_id,
+                    description=alias,
+                )
+                db.add(voice)
+                db.commit()
+                logging.info("火山引擎音色同步成功 (新建)，SpeakerID: %s", speaker_id)
+                return {"status": "created", "speaker_id": speaker_id}
+            else:
+                existing.description = alias
+                db.commit()
+                logging.info("火山引擎音色同步成功 (更新)，SpeakerID: %s", speaker_id)
+                return {"status": "updated", "speaker_id": speaker_id}
+        except Exception:
+            db.rollback()
+            raise
