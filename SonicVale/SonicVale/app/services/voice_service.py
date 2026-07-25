@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import shutil
 import tempfile
 import zipfile
@@ -11,9 +12,28 @@ from app.core.audio_engin import AudioProcessor
 from app.core.path_security import safe_extract_zip, validate_path_within_root
 from app.dto.voice_dto import VoiceAudioProcessDTO
 from app.entity.voice_entity import VoiceEntity
-from app.models.po import VoicePO
+from app.models.po import MultiEmotionVoicePO, VoicePO
 from app.repositories.multi_emotion_voice_repository import MultiEmotionVoiceRepository
 from app.repositories.voice_repository import VoiceRepository
+
+
+def sanitize_filename(name: str) -> str:
+    """清理文件名中的非法字符,防止 Windows/Unix 下的路径问题和非法字符。
+
+    保留中文、字母、数字、下划线、连字符;其他字符替换为下划线。
+    """
+    if not name:
+        return "unnamed"
+    # 移除路径分隔符和控制字符
+    name = name.replace(os.sep, "_").replace("/", "_").replace("\\", "_")
+    # 替换 Windows 非法字符: < > : " / \\ | ? *
+    name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", name)
+    # 移除开头结尾的点和空格(Windows 限制)
+    name = name.strip(". ")
+    # 限制长度,避免文件系统限制
+    if len(name) > 200:
+        name = name[:200]
+    return name if name else "unnamed"
 
 
 class VoiceService:
@@ -22,6 +42,8 @@ class VoiceService:
         """注入 repository"""
         self.repository = repository
         self.multi_emotion_voice_repository = multi_emotion_voice_repository
+        # 共享同一个 db session,用于跨 repository 的事务管理
+        self.db = repository.db
 
     def create_voice(self,  entity: VoiceEntity):
         """创建新音色
@@ -71,24 +93,48 @@ class VoiceService:
         - 检查同名冲突
         - 检查project_id不能改变
         """
-        name = data["name"]
-        tts_provider_id = data["tts_provider_id"]
-        if self.repository.get_by_name(name, tts_provider_id) and self.repository.get_by_name(name,tts_provider_id).id != voice_id:
-            return False
+        # 使用 .get() 避免 KeyError,缺失时返回 None
+        name = data.get("name")
+        tts_provider_id = data.get("tts_provider_id")
+
         po = self.repository.get_by_id(voice_id)
-        # 防止改变project_id
-        if po.tts_provider_id != tts_provider_id:
+        if not po:
             return False
+
+        # 防止改变 tts_provider_id
+        if tts_provider_id is not None and po.tts_provider_id != tts_provider_id:
+            return False
+
+        # 检查同名冲突(仅当 name 存在时)
+        if name:
+            existing = self.repository.get_by_name(name, po.tts_provider_id)
+            if existing and existing.id != voice_id:
+                return False
+
         self.repository.update(voice_id, data)
         return True
 
     def delete_voice(self, voice_id: int) -> bool:
         """删除音色,需要保证事务
+        - 同时删除音色记录和关联的多情绪音色记录
+        - 任一失败则回滚,保证数据一致性
         """
-
-        res = self.repository.delete(voice_id)
-        self.multi_emotion_voice_repository.delete_multi_emotion_voice_by_voice_id(voice_id)
-        return res
+        voice = self.db.get(VoicePO, voice_id)
+        if not voice:
+            return False
+        try:
+            # 先删除关联的多情绪音色
+            self.db.query(MultiEmotionVoicePO).filter(
+                MultiEmotionVoicePO.voice_id == voice_id
+            ).delete(synchronize_session=False)
+            # 再删除音色本身
+            self.db.delete(voice)
+            # 统一提交,保证原子性
+            self.db.commit()
+            return True
+        except Exception:
+            self.db.rollback()
+            raise
 
     def export_voices(self, tts_provider_id: int, export_path: str, ids: List[int] | None = None) -> str:
         """导出音色库到zip文件
@@ -105,7 +151,7 @@ class VoiceService:
                 for po in pos
             ]
         if not voices:
-            return None
+            raise ValueError("没有可导出的音色")
 
         # 确保导出目录存在
         os.makedirs(os.path.dirname(export_path) if os.path.dirname(export_path) else ".", exist_ok=True)
@@ -192,11 +238,11 @@ class VoiceService:
                         # 跳过恶意路径
                         continue
                     if os.path.exists(source_file):
-                        # 使用音色名称作为文件名，保留原扩展名
+                        # 使用 sanitize 后的音色名称作为文件名,保留原扩展名
                         file_ext = os.path.splitext(source_file)[1]
-                        file_name = f"{voice_name}{file_ext}"
+                        safe_name = sanitize_filename(voice_name)
+                        file_name = f"{safe_name}{file_ext}"
                         # 校验目标路径不穿越 target_dir
-                        dest_file = os.path.join(target_dir, file_name)
                         try:
                             dest_file = validate_path_within_root(file_name, target_dir)
                         except ValueError:
@@ -292,8 +338,9 @@ class VoiceService:
             
             # 获取源文件扩展名
             file_ext = os.path.splitext(source_voice.reference_path)[1]
-            # 使用新音色名作为文件名
-            new_file_name = f"{new_name}{file_ext}"
+            # 使用 sanitize 后的新音色名作为文件名
+            safe_name = sanitize_filename(new_name)
+            new_file_name = f"{safe_name}{file_ext}"
             new_reference_path = os.path.join(dest_dir, new_file_name)
             
             # 复制文件

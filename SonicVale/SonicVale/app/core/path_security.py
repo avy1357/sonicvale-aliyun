@@ -32,7 +32,10 @@ def validate_path_within_root(path: str, root: str) -> str:
     target_real = os.path.realpath(target)
 
     # 校验目标路径必须以根目录为前缀
-    if not target_real.startswith(root_real + os.sep) and target_real != root_real:
+    # 使用 normcase 统一大小写(Windows 下盘符大小写不敏感)
+    root_norm = os.path.normcase(root_real)
+    target_norm = os.path.normcase(target_real)
+    if not target_norm.startswith(root_norm + os.sep) and target_norm != root_norm:
         raise ValueError(
             f"安全限制:路径 '{path}' 超出允许的根目录范围"
         )
@@ -55,6 +58,7 @@ def validate_zip_members(zip_path: str, extract_root: str) -> List[str]:
     import zipfile
 
     extract_root_real = os.path.realpath(extract_root)
+    extract_root_norm = os.path.normcase(extract_root_real)
     malicious = []
 
     with zipfile.ZipFile(zip_path, 'r') as zf:
@@ -67,8 +71,10 @@ def validate_zip_members(zip_path: str, extract_root: str) -> List[str]:
                 malicious.append(name)
                 continue
             # 双重校验:拼接后规范化也必须在根目录下
+            # 使用 normcase 统一大小写(Windows 下盘符大小写不敏感)
             target = os.path.realpath(os.path.join(extract_root_real, name))
-            if not target.startswith(extract_root_real + os.sep) and target != extract_root_real:
+            target_norm = os.path.normcase(target)
+            if not target_norm.startswith(extract_root_norm + os.sep) and target_norm != extract_root_norm:
                 malicious.append(name)
 
     if malicious:

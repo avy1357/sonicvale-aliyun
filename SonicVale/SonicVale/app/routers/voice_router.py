@@ -1,6 +1,7 @@
+import logging
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
@@ -10,12 +11,12 @@ from app.dto.tts_provider_dto import TTSProviderResponseDTO
 from app.dto.voice_dto import VoiceResponseDTO, VoiceCreateDTO, VoiceExportDTO, VoiceImportDTO, VoiceImportResultDTO, VoiceAudioProcessDTO, VoiceCopyDTO
 from app.entity.voice_entity import VoiceEntity
 from app.repositories.multi_emotion_voice_repository import MultiEmotionVoiceRepository
-
 from app.repositories.tts_provider_repository import TTSProviderRepository
 from app.repositories.voice_repository import VoiceRepository
-
 from app.services.tts_provider_service import TTSProviderService
 from app.services.voice_service import VoiceService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/voices", tags=["Voices"])
 
@@ -47,7 +48,8 @@ def process_voice_audio(dto: VoiceAudioProcessDTO, voice_service: VoiceService =
     except FileNotFoundError as e:
         return Res(data=None, code=404, message=f"音频文件不存在: {str(e)}")
     except Exception as e:
-        return Res(data=None, code=500, message=f"处理失败: {str(e)}")
+        logger.exception("处理音色参考音频失败")
+        return Res(data=None, code=500, message="处理失败:服务器内部错误")
 
 
 @router.post("/export", response_model=Res[str],
@@ -57,12 +59,12 @@ def export_voices(dto: VoiceExportDTO, voice_service: VoiceService = Depends(get
     """导出音色库到zip文件"""
     try:
         result = voice_service.export_voices(dto.tts_provider_id, dto.export_path, dto.ids)
-        if result:
-            return Res(data=result, code=200, message="导出成功")
-        else:
-            return Res(data=None, code=400, message="没有可导出的音色")
+        return Res(data=result, code=200, message="导出成功")
+    except ValueError as e:
+        return Res(data=None, code=400, message=str(e))
     except Exception as e:
-        return Res(data=None, code=500, message=f"导出失败: {str(e)}")
+        logger.exception("导出音色库失败")
+        return Res(data=None, code=500, message="导出失败:服务器内部错误")
 
 
 @router.post("/import", response_model=Res[VoiceImportResultDTO],
@@ -85,7 +87,8 @@ def import_voices(dto: VoiceImportDTO, voice_service: VoiceService = Depends(get
     except ValueError as e:
         return Res(data=None, code=400, message=str(e))
     except Exception as e:
-        return Res(data=None, code=500, message=f"导入失败: {str(e)}")
+        logger.exception("导入音色库失败")
+        return Res(data=None, code=500, message="导入失败:服务器内部错误")
 
 
 @router.post("/copy", response_model=Res[VoiceResponseDTO],
@@ -102,7 +105,8 @@ def copy_voice(dto: VoiceCopyDTO, voice_service: VoiceService = Depends(get_voic
     except ValueError as e:
         return Res(data=None, code=400, message=str(e))
     except Exception as e:
-        return Res(data=None, code=500, message=f"复制失败: {str(e)}")
+        logger.exception("复制音色失败")
+        return Res(data=None, code=500, message="复制失败:服务器内部错误")
 
 
 @router.get("/tts/{tts_provider_id}", response_model=Res[List[VoiceResponseDTO]],
@@ -143,7 +147,10 @@ def create_voice(dto: VoiceCreateDTO, voice_service: VoiceService = Depends(get_
             return Res(data=None, code=400, message=f"音色 '{entity.name}' 已存在")
 
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        return Res(data=None, code=400, message=str(e))
+    except Exception as e:
+        logger.exception("创建音色失败")
+        return Res(data=None, code=500, message="创建失败:服务器内部错误")
 
 
 # ====== 动态路由放在最后 ======
@@ -165,14 +172,18 @@ def get_voice(voice_id: int, voice_service: VoiceService = Depends(get_voice_ser
             summary="修改音色信息",
             description="根据音色id修改音色信息,并且不能修改项目id")
 def update_voice(voice_id: int, dto: VoiceCreateDTO, voice_service: VoiceService = Depends(get_voice_service)):
-    voice = voice_service.get_voice(voice_id)
-    if voice is None:
-        return Res(data=None, code=404, message="音色不存在")
-    res = voice_service.update_voice(voice_id, dto.dict())
-    if res:
-        return Res(data=dto, code=200, message="修改成功")
-    else:
-        return Res(data=None, code=400, message="修改失败")
+    try:
+        voice = voice_service.get_voice(voice_id)
+        if voice is None:
+            return Res(data=None, code=404, message="音色不存在")
+        res = voice_service.update_voice(voice_id, dto.dict())
+        if res:
+            return Res(data=dto, code=200, message="修改成功")
+        else:
+            return Res(data=None, code=400, message="修改失败")
+    except Exception as e:
+        logger.exception("修改音色失败")
+        return Res(data=None, code=500, message="修改失败:服务器内部错误")
 
 
 # 根据 id，删除
@@ -180,11 +191,15 @@ def update_voice(voice_id: int, dto: VoiceCreateDTO, voice_service: VoiceService
                summary="删除音色",
                description="根据音色id删除音色信息")
 def delete_voice(voice_id: int, voice_service: VoiceService = Depends(get_voice_service)):
-    success = voice_service.delete_voice(voice_id)
-    if success:
-        return Res(data=None, code=200, message="删除成功")
-    else:
-        return Res(data=None, code=400, message="删除失败或音色不存在")
+    try:
+        success = voice_service.delete_voice(voice_id)
+        if success:
+            return Res(data=None, code=200, message="删除成功")
+        else:
+            return Res(data=None, code=400, message="删除失败或音色不存在")
+    except Exception as e:
+        logger.exception("删除音色失败")
+        return Res(data=None, code=500, message="删除失败:服务器内部错误")
 
 
 # tts_provider的查询和修改
