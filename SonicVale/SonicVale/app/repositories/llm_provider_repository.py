@@ -44,7 +44,8 @@ class LLMProviderRepository:
 
     def update(self, llm_provider_id: int, llm_provider_data: dict) -> Optional[LLMProviderPO]:
         """更新LLM供应商"""
-        llm_provider = self.get_by_id(llm_provider_id)
+        # 直接从 DB 获取密文 PO,避免 get_by_id 解密后明文被 commit 回写数据库
+        llm_provider = self.db.get(LLMProviderPO, llm_provider_id)
         if not llm_provider:
             return None
         # 对 dict 中的敏感字段加密(只加密存在的字段)

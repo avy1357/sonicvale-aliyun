@@ -4,12 +4,10 @@ import re
 import shutil
 import tempfile
 import zipfile
-from typing import List, Tuple, Optional
-
-from sqlalchemy import Sequence
+from typing import List, Tuple, Optional, Sequence
 
 from app.core.audio_engin import AudioProcessor
-from app.core.path_security import safe_extract_zip, validate_path_within_root
+from app.core.path_security import safe_extract_zip, validate_path_within_root, assert_path_not_system_critical
 from app.dto.voice_dto import VoiceAudioProcessDTO
 from app.entity.voice_entity import VoiceEntity
 from app.models.po import MultiEmotionVoicePO, VoicePO
@@ -73,11 +71,12 @@ def _entity_to_po_data(entity: VoiceEntity) -> dict:
 
 
 def _validate_user_path(path: str, field_name: str = "路径") -> None:
-    """校验用户可控路径:必须为绝对路径且不包含 .. 段,防止穿越任意目录。"""
+    """校验用户可控路径:必须为绝对路径、不包含 .. 段、不指向系统关键目录。"""
     if not path or not os.path.isabs(path):
         raise ValueError(f"{field_name}必须为绝对路径")
     if ".." in path.replace("\\", "/").split("/"):
         raise ValueError(f"{field_name}不允许包含 ..")
+    assert_path_not_system_critical(path)
 
 
 class VoiceService:

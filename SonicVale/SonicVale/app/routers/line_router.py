@@ -76,6 +76,8 @@ def create_line(project_id:int,dto: LineCreateDTO, line_service: LineService = D
         # 调用 Service 创建项目（返回 True/False）
 
         entityRes = line_service.create_line(entity)
+        if entityRes is None:
+            return Res(data=None, code=400, message=f"台词 '{entity.name}' 已存在")
 
         # 新增台词,这里搞个audio_path
         audio_path = os.path.join(project.project_root_path, str(project_id), str(dto.chapter_id), "audio")
@@ -84,12 +86,8 @@ def create_line(project_id:int,dto: LineCreateDTO, line_service: LineService = D
         line_service.update_line(entityRes.id, {"audio_path": res_path})
 
         # 返回统一 Response
-        if entityRes is not None:
-            # 创建成功，可以返回 DTO 或者部分字段
-            res = LineResponseDTO(**entityRes.__dict__)
-            return Res(data=res, code=200, message="创建成功")
-        else:
-            return Res(data=None, code=400, message=f"台词 '{entity.name}' 已存在")
+        res = LineResponseDTO(**entityRes.__dict__)
+        return Res(data=res, code=200, message="创建成功")
 
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

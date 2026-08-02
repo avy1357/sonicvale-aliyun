@@ -108,3 +108,36 @@ def safe_extract_zip(zip_path: str, extract_root: str) -> None:
     os.makedirs(extract_root, exist_ok=True)
     with zipfile.ZipFile(zip_path, 'r') as zf:
         zf.extractall(extract_root)
+
+
+# 系统关键目录黑名单(防止向系统目录写入/删除文件)
+_SYSTEM_CRITICAL_DIRS = [
+    # Windows
+    r"c:\windows", r"c:\program files", r"c:\program files (x86)",
+    r"c:\programdata", r"c:\windows\system32", r"c:\$recycle.bin",
+    # Unix
+    "/etc", "/usr", "/bin", "/sbin", "/boot", "/lib", "/lib64", "/dev", "/proc", "/sys",
+    # macOS
+    "/system", "/library", "/applications",
+]
+
+
+def assert_path_not_system_critical(path: str) -> None:
+    """校验路径不指向系统关键目录,防止向系统目录写入/删除文件。
+
+    Args:
+        path: 待校验的路径
+
+    Raises:
+        ValueError: 路径指向系统关键目录
+    """
+    if not path:
+        return
+    real = os.path.realpath(path)
+    norm = os.path.normcase(real)
+    for critical in _SYSTEM_CRITICAL_DIRS:
+        c_norm = os.path.normcase(critical)
+        if norm == c_norm or norm.startswith(c_norm + os.sep):
+            raise ValueError(
+                f"安全限制:路径 '{path}' 指向系统关键目录,禁止操作"
+            )

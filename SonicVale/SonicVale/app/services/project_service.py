@@ -2,7 +2,11 @@ import os
 import re
 import logging
 
-from sqlalchemy import Sequence, select, delete
+from sqlalchemy import select, delete
+from typing import Sequence
+
+from app.core.config import getConfigPath
+from app.core.path_security import assert_path_not_system_critical
 
 from app.entity.project_entity import ProjectEntity
 from app.models.po import ProjectPO, ChapterPO, RolePO, LinePO
@@ -25,6 +29,15 @@ class ProjectService:
         project = self.repository.get_by_name(entity.name)
         if project:
             return None, "项目已存在"
+        # 项目根路径为空时默认使用配置目录
+        if not entity.project_root_path:
+            entity.project_root_path = getConfigPath()
+        # 安全校验:防止项目根路径指向系统关键目录
+        try:
+            assert_path_not_system_critical(entity.project_root_path)
+        except ValueError:
+            logging.warning("拒绝创建项目,根路径指向系统关键目录: %s", entity.project_root_path)
+            return None, "项目根路径非法"
         # 判断项目根路径是否存在
         if not os.path.exists(entity.project_root_path):
             logging.info("项目根路径不存在")
@@ -109,6 +122,12 @@ class ProjectService:
 
     def search_projects(self, keyword: str) -> Sequence[ProjectEntity]:
         """模糊搜索项目"""
+        pos = self.repository.search(keyword)
+        entities = [
+            ProjectEntity(**{k: v for k, v in po.__dict__.items() if not k.startswith("_")})
+            for po in pos
+        ]
+        return entities
 
     # 解析content，按照章节
     def parse_content(self, content):

@@ -2,6 +2,7 @@ import json
 import logging
 
 from sqlalchemy import select, func
+from typing import Sequence
 
 from app.core.llm_engine import LLMEngine
 from app.entity.llm_provider_entity import LLMProviderEntity

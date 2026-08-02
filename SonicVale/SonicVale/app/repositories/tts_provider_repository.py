@@ -56,7 +56,8 @@ class TTSProviderRepository:
 
     def update(self, tts_provider_id: int, tts_provider_data: dict) -> Optional[TTSProviderPO]:
         """更新tts供应商信息"""
-        tts_provider = self.get_by_id(tts_provider_id)
+        # 直接从 DB 获取密文 PO,避免 get_by_id 解密后明文被 commit 回写数据库
+        tts_provider = self.db.get(TTSProviderPO, tts_provider_id)
         if not tts_provider:
             return None
         # 对 dict 中的敏感字段加密(只加密存在的字段)

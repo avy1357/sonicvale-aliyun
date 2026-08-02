@@ -10,6 +10,7 @@ Repository 层在写库前加密、读出后解密, 业务层无感知。
 import os
 import base64
 import logging
+import threading
 
 from cryptography.fernet import Fernet, InvalidToken
 
@@ -33,34 +34,40 @@ TTS_PROVIDER_SECRET_FIELDS: tuple = (
 # ---------------------------------------------------------------------------
 _KEY_FILE = os.path.join(getConfigPath(), "secret.key")
 _fernet: "Fernet | None" = None
+_lock = threading.Lock()
 
 
 def _get_fernet() -> Fernet:
-    """获取全局 Fernet 实例, 首次调用时加载/生成主密钥"""
+    """获取全局 Fernet 实例, 首次调用时加载/生成主密钥(线程安全)"""
     global _fernet
     if _fernet is not None:
         return _fernet
 
-    if os.path.exists(_KEY_FILE):
-        with open(_KEY_FILE, "rb") as f:
-            key = f.read().strip()
-        try:
-            _fernet = Fernet(key)
+    with _lock:
+        # 双重检查:其他线程可能已在持锁期间完成初始化
+        if _fernet is not None:
             return _fernet
-        except (ValueError, base64.binascii.Error):
-            logger.warning("主密钥文件损坏, 重新生成: %s", _KEY_FILE)
 
-    # 生成新密钥
-    key = Fernet.generate_key()
-    # 以仅属主可读写权限保存 (0600)
-    fd = os.open(_KEY_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    try:
-        os.write(fd, key)
-    finally:
-        os.close(fd)
-    _fernet = Fernet(key)
-    logger.info("已生成新主密钥: %s", _KEY_FILE)
-    return _fernet
+        if os.path.exists(_KEY_FILE):
+            with open(_KEY_FILE, "rb") as f:
+                key = f.read().strip()
+            try:
+                _fernet = Fernet(key)
+                return _fernet
+            except (ValueError, base64.binascii.Error):
+                logger.warning("主密钥文件损坏, 重新生成: %s", _KEY_FILE)
+
+        # 生成新密钥
+        key = Fernet.generate_key()
+        # 以仅属主可读写权限保存 (0600)
+        fd = os.open(_KEY_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        try:
+            os.write(fd, key)
+        finally:
+            os.close(fd)
+        _fernet = Fernet(key)
+        logger.info("已生成新主密钥: %s", _KEY_FILE)
+        return _fernet
 
 
 def _encrypt_value(plain: str) -> str:
