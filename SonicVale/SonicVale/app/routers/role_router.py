@@ -1,4 +1,5 @@
 from typing import List
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -15,6 +16,8 @@ from app.repositories.llm_provider_repository import LLMProviderRepository
 from app.services.line_service import LineService
 from app.services.project_service import ProjectService
 from app.services.role_service import RoleService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/roles", tags=["Roles"])
 
@@ -81,7 +84,7 @@ def get_all_roles(project_id: int, role_service: RoleService = Depends(get_role_
         res = [RoleResponseDTO(**e.__dict__) for e in entities]
         return Res(data=res, code=200, message="查询成功")
     else:
-        return Res(data=[], code=404, message="项目不存在角色")
+        return Res(data=[], code=200, message="查询成功")
 
 # 修改，传入的参数是id
 @router.put("/{role_id}", response_model=Res[RoleResponseDTO],
@@ -91,7 +94,7 @@ def update_role(role_id: int, dto: RoleCreateDTO, role_service: RoleService = De
     role = role_service.get_role(role_id)
     if role is None:
         return Res(data=None, code=404, message="角色不存在")
-    res = role_service.update_role(role_id, dto.dict(exclude_unset=True))
+    res = role_service.update_role(role_id, dto.dict(exclude_unset=True, exclude={"project_id"}))
     if res:
         updated_role = role_service.get_role(role_id)
         return Res(data=RoleResponseDTO(**updated_role.__dict__), code=200, message="修改成功")
@@ -104,13 +107,17 @@ def update_role(role_id: int, dto: RoleCreateDTO, role_service: RoleService = De
                summary="删除角色",
                description="根据角色id删除角色信息")
 def delete_role(role_id: int, role_service: RoleService = Depends(get_role_service),line_service: LineService = Depends(get_line_service)):
-    success = role_service.delete_role(role_id)
-    if success:
-        # 获取改角色下所有的台词
+    try:
+        # 先解除台词中对该角色的引用,再删除角色,避免产生孤儿引用
         line_service.clear_role_id(role_id)
-        return Res(data=None, code=200, message="删除成功")
-    else:
-        return Res(data=None, code=400, message="删除失败或角色不存在")
+        success = role_service.delete_role(role_id)
+        if success:
+            return Res(data=None, code=200, message="删除成功")
+        else:
+            return Res(data=None, code=400, message="删除失败或角色不存在")
+    except Exception:
+        logger.exception("删除角色失败")
+        return Res(data=None, code=500, message="删除失败:服务器内部错误")
 
 
 # 根据内容进行解析

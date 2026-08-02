@@ -44,10 +44,10 @@ def get_multi_emotion_voice_by_voice_id(voice_id: int, multi_emotion_voice_servi
     # 应该查询voice
     voice = voice_service.get_voice(voice_id)
     if voice is None:
-        return Res(code=404, message="音色不存在")
+        return Res(data=None, code=404, message="音色不存在")
     entities = multi_emotion_voice_service.get_multi_emotion_voice_by_voice_id(voice_id)
     if entities is None:
-        return Res(code=404, message="多音色不存在")
+        return Res(data=None, code=404, message="多音色不存在")
     else:
         res = [MultiEmotionVoiceResponseDTO(**entity.__dict__) for entity in entities]
         return Res(data=res, code=200, message="查询成功")
@@ -74,12 +74,12 @@ def create_multi_emotion_voice(dto: MultiEmotionVoiceCreateDTO, multi_emotion_vo
     # 判断强度枚举是否存在
     strength = strength_service.get_strength(dto.strength_id)
     if voice is None or emotion is None or strength is None:
-        return Res(code=500, message="创建失败,音色或者情绪枚举或者情绪强弱枚举不存在，不能创建多情绪音色")
+        return Res(data=None, code=400, message="创建失败,音色或者情绪枚举或者情绪强弱枚举不存在，不能创建多情绪音色")
     # DTO → Entity
     entity = MultiEmotionVoiceEntity(**dto.__dict__)
     entity = multi_emotion_voice_service.create_multi_emotion_voice(entity)
     if entity is None:
-        return Res(code=500, message="创建失败,已存在多情绪音色")
+        return Res(data=None, code=400, message="创建失败,已存在多情绪音色")
     else :
         entity = MultiEmotionVoiceResponseDTO(**entity.__dict__)
         return Res(data=entity, code=200, message="创建成功")
@@ -92,12 +92,14 @@ def update_multi_emotion_voice(multi_emotion_voice_id: int, dto: MultiEmotionVoi
     try:
         entity = multi_emotion_voice_service.get_multi_emotion_voice_by_id(multi_emotion_voice_id)
         if entity is None:
-            return Res(code=404, message="多音色不存在")
+            return Res(data=None, code=404, message="多音色不存在")
         res = multi_emotion_voice_service.update_multi_emotion_voice(multi_emotion_voice_id, dto.dict(exclude_unset=True))
         if res is None:
-            return Res(code=500, message="修改失败")
+            return Res(data=None, code=400, message="修改失败")
         else:
-            entityRes = MultiEmotionVoiceResponseDTO(**entity.__dict__)
+            # 重新查询返回最新实体,避免回显旧数据
+            updated = multi_emotion_voice_service.get_multi_emotion_voice_by_id(multi_emotion_voice_id)
+            entityRes = MultiEmotionVoiceResponseDTO(**updated.__dict__)
             return Res(data=entityRes, code=200, message="修改成功")
     except Exception:
         logger.exception("修改多情绪音色失败")

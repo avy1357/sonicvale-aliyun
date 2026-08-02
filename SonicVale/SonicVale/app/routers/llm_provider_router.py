@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from typing import List
+import logging
 
 from sqlalchemy.orm import Session
 
@@ -10,6 +11,8 @@ from app.entity.llm_provider_entity import LLMProviderEntity
 from app.services.llm_provider_service import LLMProviderService
 from app.repositories.llm_provider_repository import LLMProviderRepository
 
+logger = logging.getLogger(__name__)
+
 # 初始化 router
 router = APIRouter(prefix="/llm_providers", tags=["LLMProviders"])
 
@@ -18,11 +21,10 @@ _SECRET_FIELDS = ("api_key",)
 
 
 def _mask_secrets(entity) -> dict:
-    """返回脱敏后的字段字典，敏感凭证用 '***' 替代"""
+    """返回脱敏后的字段字典,敏感凭证改用布尔标志(配合 ResponseDTO 的 has_* 字段)"""
     data = {k: v for k, v in entity.__dict__.items() if not k.startswith("_")}
-    for field in _SECRET_FIELDS:
-        if data.get(field):
-            data[field] = "***"
+    data["has_api_key"] = bool(data.get("api_key"))
+    data.pop("api_key", None)
     return data
 
 
@@ -98,11 +100,9 @@ def update_llm_provider(llm_provider_id: int, dto: LLMProviderCreateDTO, service
 
     success = service.update_llm_provider(llm_provider_id,dto.dict(exclude_unset=True))
     if success:
-        # C6: 脱敏返回
-        masked_data = dto.dict()
-        for field in _SECRET_FIELDS:
-            if masked_data.get(field):
-                masked_data[field] = "***"
+        # 返回更新后的实体(脱敏),而非入参 dto
+        updated = service.get_llm_provider(llm_provider_id)
+        masked_data = _mask_secrets(updated)
         return Res(data=masked_data, code=200, message="更新成功")
     else:
         return Res(data=None, code=400, message="更新失败")
@@ -127,9 +127,17 @@ def test_llm_provider(dto: LLMProviderCreateDTO, service: LLMProviderService = D
     """
     测试供应商
     """
-    entity = LLMProviderEntity(**dto.__dict__)
-    res,msg = service.test_llm_provider(entity)
-    if res == True:
-        return Res(data=None, code=200, message="测试成功")
-    else:
-        return Res(data=None, code=400, message= msg)
+    try:
+        entity = LLMProviderEntity(**dto.__dict__)
+        result = service.test_llm_provider(entity)
+        # 防御性校验返回值类型
+        if not isinstance(result, tuple) or len(result) != 2:
+            return Res(data=None, code=500, message="测试返回格式异常")
+        res, msg = result
+        if res:
+            return Res(data=None, code=200, message="测试成功")
+        else:
+            return Res(data=None, code=400, message=msg)
+    except Exception:
+        logger.exception("测试 LLM 供应商失败")
+        return Res(data=None, code=500, message="测试失败:服务器内部错误")

@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from fastapi import APIRouter, Depends, HTTPException, Form
 
 
+from app.core.path_security import assert_path_not_system_critical
 from app.core.response import Res
 from app.core.text_correct_engine import TextCorrectorFinal
 from app.core.ws_manager import manager
@@ -121,7 +122,7 @@ async def get_chapter(chapter_id: int, chapter_service: ChapterService = Depends
         res = ChapterResponseDTO(**entity.__dict__)
         return Res(data=res, code=200, message="查询成功")
     else:
-        return Res(data=None, code=404, message="项目不存在")
+        return Res(data=None, code=404, message="章节不存在")
 
 @router.get("/project/{project_id}", response_model=Res[List[ChapterResponseDTO]],
             summary="查询项目下的所有章节",
@@ -142,7 +143,7 @@ async def update_chapter(chapter_id: int, dto: ChapterCreateDTO, chapter_service
     chapter = chapter_service.get_chapter(chapter_id)
     if chapter is None:
         return Res(data=None, code=404, message="章节不存在")
-    res = chapter_service.update_chapter(chapter_id, dto.dict(exclude_unset=True))
+    res = chapter_service.update_chapter(chapter_id, dto.dict(exclude_unset=True, exclude={"project_id"}))
     if res:
         updated_chapter = chapter_service.get_chapter(chapter_id)
         return Res(data=ChapterResponseDTO(**updated_chapter.__dict__), code=200, message="修改成功")
@@ -213,6 +214,8 @@ async def get_lines(
         return Res(data=None, code=500, message="初始化角色/情绪/强度失败")
 
     project = project_service.get_project(project_id)
+    if project is None:
+        return Res(data=None, code=404, message="项目不存在")
     # 精准填充
     is_precise_fill = project.is_precise_fill
     # 判断tts，llm，model是否存在
@@ -256,6 +259,12 @@ async def get_lines(
 
     try:
         audio_path = os.path.join(project.project_root_path,str(project_id),str(chapter_id),"audio")
+        # 运行时再次校验路径不指向系统关键目录
+        try:
+            assert_path_not_system_critical(audio_path)
+        except ValueError as e:
+            logging.warning("拒绝创建音频目录,路径非法: %s", audio_path)
+            return Res(data=None, code=400, message="项目根路径非法,拒绝操作")
         os.makedirs(audio_path, exist_ok=True)
         line_service.update_init_lines(
             all_line_data, project_id, chapter_id, emotions_dict, strengths_dict,audio_path
@@ -312,6 +321,9 @@ async def import_lines(project_id: int,chapter_id: int,data:str=Form( ...),line_
         lines_data = json.loads(data)
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="无效的 JSON 数据")
+    # 单次导入数量限制,防止超大请求造成阻塞
+    if not isinstance(lines_data, list) or len(lines_data) > 1000:
+        return Res(data=None, code=400, message="单次导入不超过1000条")
     # 转化成List[LineInitDTO]
     emotions = emotion_service.get_all_emotions()
     strengths = strength_service.get_all_strengths()
@@ -320,8 +332,10 @@ async def import_lines(project_id: int,chapter_id: int,data:str=Form( ...),line_
     strengths_dict = {strength.name: strength.id for strength in strengths}
     # 精准填充
     project = project_service.get_project(project_id)
+    if project is None:
+        return Res(data=None, code=404, message="项目不存在")
     is_precise_fill = project.is_precise_fill
-    
+
     if is_precise_fill == 1:
         # 获取章节内容
         chapter = chapter_service.get_chapter(chapter_id)
@@ -332,10 +346,19 @@ async def import_lines(project_id: int,chapter_id: int,data:str=Form( ...),line_
             return Res(data=None, code=500, message="章节内容为空")
         corrector = TextCorrectorFinal()
         lines_data = corrector.correct_ai_text(content, lines_data)
+    # 矫正后再次校验数量,防止异常膨胀
+    if not isinstance(lines_data, list) or len(lines_data) > 1000:
+        return Res(data=None, code=400, message="单次导入不超过1000条")
     lines_data = [LineInitDTO(**line) for line in lines_data]
 
 
     audio_path = os.path.join(project.project_root_path,str(project_id),str(chapter_id),"audio")
+    # 运行时再次校验路径不指向系统关键目录
+    try:
+        assert_path_not_system_critical(audio_path)
+    except ValueError as e:
+        logging.warning("拒绝创建音频目录,路径非法: %s", audio_path)
+        return Res(data=None, code=400, message="项目根路径非法,拒绝操作")
     os.makedirs(audio_path, exist_ok=True)
     line_service.update_init_lines(lines_data, project_id, chapter_id, emotions_dict, strengths_dict,audio_path)
     return Res(data=None, code=200, message="导入成功")
@@ -406,7 +429,11 @@ async def add_smart_role_and_voice(project_id: int,chapter_id: int,
     if not chapter:
         raise HTTPException(status_code=404, detail="章节不存在")
     content = chapter.text_content
-    res,data = chapter_service.add_smart_role_and_voice(project,content,role_names,voice_names)
+    result = chapter_service.add_smart_role_and_voice(project,content,role_names,voice_names)
+    # 防御性校验返回值类型,避免解包失败
+    if not isinstance(result, tuple) or len(result) != 2:
+        return Res(data=None, code=500, message="智能匹配返回格式异常")
+    res, data = result
     # 将data中的每一个元素转化为RoleBindVoiceDTO
     # data = [RoleBindVoiceDTO(**item) for item in data]
     if res:

@@ -102,7 +102,7 @@ def update_project(project_id: int, dto: ProjectCreateDTO, service: ProjectServi
     if not project:
         return Res(data=None, code=400, message="项目不存在")
 
-    success = service.update_project(project_id,dto.dict())
+    success = service.update_project(project_id,dto.dict(exclude_unset=True))
     if success:
         updated_project = service.get_project(project_id)
         return Res(data=ProjectResponseDTO(**updated_project.__dict__), code=200, message="更新成功")
@@ -165,7 +165,7 @@ def delete_project(project_id: int, service: ProjectService = Depends(get_servic
                 logging.info("已删除目录及内容: %s", project_path)
             except Exception as e:
                 logging.exception("删除项目目录失败(数据已清,文件残留): %s", e)
-                return Res(data=None, code=200, message="项目数据已删除,但目录清理失败,请手动删除: " + project_path)
+                return Res(data=None, code=200, message="项目数据已删除,但目录清理失败,请手动清理")
         else:
             logging.info("目录不存在: %s", project_path)
 
@@ -178,21 +178,24 @@ def delete_project(project_id: int, service: ProjectService = Depends(get_servic
 @router.post("/{project_id}/import")
 def import_project(project_id: int, dto: ProjectImportDTO,service: ProjectService = Depends(get_service),
                    chapter_service: ChapterService = Depends(get_chapter_service)):
+    try:
+        content = dto.content
+        # 删除该项目下的所有章节
+        # chapters = chapter_service.get_all_chapters(project_id)
+        # for chapter in chapters:
+        #     chapter_service.delete_chapter(chapter.id)
+        # 解析content
+        chapter_contents = service.parse_content(content)
+        if len(chapter_contents) == 0:
+            return Res(data=None, code=400, message="导入失败")
 
-    content = dto.content
-    # 删除该项目下的所有章节
-    # chapters = chapter_service.get_all_chapters(project_id)
-    # for chapter in chapters:
-    #     chapter_service.delete_chapter(chapter.id)
-    # 解析content
-    chapter_contents = service.parse_content(content)
-    if len(chapter_contents) == 0:
-        return Res(code=400, message="导入失败")
-
-    # 批量创建章节
-    for chapter_content in chapter_contents:
-        name = chapter_content["chapter_name"]
-        content = chapter_content["content"]
-        logging.info("批量创建章节 %s", name)
-        chapter_service.create_chapter(ChapterEntity(project_id=project_id, title=name, text_content=content))
-    return Res(code=200, message="导入成功")
+        # 批量创建章节
+        for chapter_content in chapter_contents:
+            name = chapter_content["chapter_name"]
+            content = chapter_content["content"]
+            logging.info("批量创建章节 %s", name)
+            chapter_service.create_chapter(ChapterEntity(project_id=project_id, title=name, text_content=content))
+        return Res(data=None, code=200, message="导入成功")
+    except Exception:
+        logging.exception("导入项目失败")
+        return Res(data=None, code=500, message="导入失败:服务器内部错误")

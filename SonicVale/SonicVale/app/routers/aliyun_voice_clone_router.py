@@ -24,8 +24,8 @@ def get_service(db: Session = Depends(get_db)) -> AliyunVoiceCloneService:
             summary="查询阿里云音色列表",
             description="查询指定阿里云 TTS 提供商下的音色列表")
 def list_voices(
-    tts_provider_id: int,
-    prefix: Optional[str] = None,
+    tts_provider_id: int = Query(..., ge=1),
+    prefix: Optional[str] = Query(default=None, max_length=100),
     page_index: int = Query(default=0, ge=0),
     page_size: int = Query(default=10, ge=1, le=100),
     service: AliyunVoiceCloneService = Depends(get_service)
@@ -49,8 +49,8 @@ def list_voices(
             summary="获取阿里云音色详情",
             description="获取指定阿里云音色的详细信息")
 def query_voice(
-    tts_provider_id: int,
-    voice_id: str,
+    tts_provider_id: int = Query(..., ge=1),
+    voice_id: str = Query(..., max_length=255),
     service: AliyunVoiceCloneService = Depends(get_service)
 ):
     try:
@@ -112,8 +112,8 @@ def update_voice(body: AliyunVoiceUpdateDTO,
                summary="删除阿里云音色",
                description="删除阿里云音色")
 def delete_voice(
-    tts_provider_id: int,
-    voice_id: str,
+    tts_provider_id: int = Query(..., ge=1),
+    voice_id: str = Query(..., max_length=255),
     service: AliyunVoiceCloneService = Depends(get_service)
 ):
     try:
@@ -130,7 +130,7 @@ def delete_voice(
              summary="同步阿里云音色到本地",
              description="将阿里云平台的音色批量同步到本地数据库")
 def sync_voices(
-    tts_provider_id: int,
+    tts_provider_id: int = Query(..., ge=1),
     db: Session = Depends(get_db),
     service: AliyunVoiceCloneService = Depends(get_service)
 ):
@@ -151,8 +151,8 @@ def sync_voices(
              summary="同步单个阿里云音色到本地",
              description="将阿里云平台的单个音色同步到本地数据库")
 def sync_single_voice(
-    tts_provider_id: int,
-    voice_id: str,
+    tts_provider_id: int = Query(..., ge=1),
+    voice_id: str = Query(..., max_length=255),
     db: Session = Depends(get_db),
     service: AliyunVoiceCloneService = Depends(get_service)
 ):

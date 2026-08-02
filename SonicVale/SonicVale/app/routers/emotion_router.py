@@ -64,7 +64,7 @@ def get_all_emotions(emotion_service: EmotionService = Depends(get_emotion_servi
         res = [EmotionResponseDTO(**e.__dict__) for e in entities]
         return Res(data=res, code=200, message="查询成功")
     else:
-        return Res(data=[], code=404, message="项目不存在情绪枚举")
+        return Res(data=[], code=200, message="查询成功")
 
 # 修改，传入的参数是id
 @router.put("/{emotion_id}", response_model=Res[EmotionCreateDTO],
@@ -76,7 +76,9 @@ def update_emotion(emotion_id: int, dto: EmotionCreateDTO, emotion_service: Emot
         return Res(data=None, code=404, message="情绪枚举不存在")
     res = emotion_service.update_emotion(emotion_id, dto.dict(exclude_unset=True))
     if res:
-        return Res(data=dto, code=200, message="修改成功")
+        # 返回更新后的实体,而非入参 dto
+        updated = emotion_service.get_emotion(emotion_id)
+        return Res(data=EmotionResponseDTO(**updated.__dict__), code=200, message="修改成功")
     else:
         return Res(data=None, code=400, message="修改失败,情绪枚举已存在")
 

@@ -66,7 +66,7 @@ def get_all_strengths(strength_service: StrengthService = Depends(get_strength_s
         res = [StrengthResponseDTO(**e.__dict__) for e in entities]
         return Res(data=res, code=200, message="查询成功")
     else:
-        return Res(data=[], code=404, message="项目不存在情绪强弱枚举")
+        return Res(data=[], code=200, message="查询成功")
 
 # 修改，传入的参数是id
 @router.put("/{strength_id}", response_model=Res[StrengthCreateDTO],
@@ -78,7 +78,9 @@ def update_strength(strength_id: int, dto: StrengthCreateDTO, strength_service: 
         return Res(data=None, code=404, message="情绪强弱枚举不存在")
     res = strength_service.update_strength(strength_id, dto.dict(exclude_unset=True))
     if res:
-        return Res(data=dto, code=200, message="修改成功")
+        # 返回更新后的实体,而非入参 dto
+        updated = strength_service.get_strength(strength_id)
+        return Res(data=StrengthResponseDTO(**updated.__dict__), code=200, message="修改成功")
     else:
         return Res(data=None, code=400, message="修改失败，情绪强弱枚举名已存在")
 

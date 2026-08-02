@@ -59,8 +59,8 @@ def get_voice_manager_service(db: Session = Depends(get_db)) -> AliyunVoiceManag
             summary="查询阿里云音色列表",
             description="查询指定阿里云 TTS 提供商下的音色列表，支持按前缀筛选和分页")
 def list_voices(
-    tts_provider_id: int,
-    prefix: Optional[str] = None,
+    tts_provider_id: int = Query(..., ge=1),
+    prefix: Optional[str] = Query(default=None, max_length=100),
     page_index: int = Query(default=0, ge=0),
     page_size: int = Query(default=10, ge=1, le=100),
     service: AliyunVoiceManagerService = Depends(get_voice_manager_service)
@@ -84,8 +84,8 @@ def list_voices(
             summary="获取阿里云音色详情",
             description="获取指定阿里云音色的详细信息，包括音色ID、名称、状态等")
 def query_voice(
-    tts_provider_id: int,
-    voice_id: str,
+    tts_provider_id: int = Query(..., ge=1),
+    voice_id: str = Query(..., max_length=255),
     service: AliyunVoiceManagerService = Depends(get_voice_manager_service)
 ):
     try:
@@ -183,7 +183,7 @@ def delete_voice(
              summary="同步阿里云音色到本地",
              description="将阿里云平台上的所有音色批量同步到本地数据库。已存在的音色会更新描述信息，不存在的会新建记录")
 def sync_voices(
-    tts_provider_id: int,
+    tts_provider_id: int = Query(..., ge=1),
     db: Session = Depends(get_db),
     service: AliyunVoiceManagerService = Depends(get_voice_manager_service)
 ):
@@ -204,8 +204,8 @@ def sync_voices(
              summary="同步单个阿里云音色到本地",
              description="将阿里云平台上的单个音色同步到本地数据库。已存在则更新描述信息，不存在则新建记录")
 def sync_single_voice(
-    tts_provider_id: int,
-    voice_id: str,
+    tts_provider_id: int = Query(..., ge=1),
+    voice_id: str = Query(..., max_length=255),
     db: Session = Depends(get_db),
     service: AliyunVoiceManagerService = Depends(get_voice_manager_service)
 ):

@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Body, Request, Query
 from sqlalchemy.orm import Session
 
 from app.core.config import getConfigPath
+from app.core.path_security import assert_path_not_system_critical
 from app.core.response import Res
 from app.core.ws_manager import manager
 from app.db.database import get_db, SessionLocal
@@ -158,8 +159,12 @@ def batch_update_line_order(
     line_orders: List[LineOrderDTO] = Body(...),  # 关键：明确从 body 读取“数组”
     line_service: LineService = Depends(get_line_service),
 ):
-    res = line_service.batch_update_line_order(line_orders)
-    return Res(data=res, code=200, message="更新成功")
+    try:
+        res = line_service.batch_update_line_order(line_orders)
+        return Res(data=res, code=200, message="更新成功")
+    except Exception:
+        logging.exception("批量更新台词顺序失败")
+        return Res(data=None, code=500, message="更新失败:服务器内部错误")
 
 # 完成配音时候，更新音频路径，保证顺序一致
 @router.put("/{line_id}/audio_path", response_model=Res[bool])
@@ -176,7 +181,18 @@ def update_line_audio_path(
 
 
 @router.post("/generate-audio/{project_id}/{chapter_id}")
-async def generate_audio(request: Request, project_id: int, dto: LineCreateDTO,line_service: LineService = Depends(get_line_service)):
+async def generate_audio(request: Request, project_id: int, chapter_id: int, dto: LineCreateDTO,
+                         line_service: LineService = Depends(get_line_service),
+                         chapter_service: ChapterService = Depends(get_chapter_service)):
+    # 对象级授权:校验台词存在且属于该 project(通过 chapter 中转)
+    if dto.id is None:
+        return Res(data=None, code=400, message="台词 id 不能为空")
+    line = line_service.get_line(dto.id)
+    if line is None:
+        return Res(data=None, code=404, message="台词不存在")
+    chapter = chapter_service.get_chapter(line.chapter_id)
+    if chapter is None or chapter.project_id != project_id:
+        return Res(data=None, code=403, message="无权操作")
     q = request.app.state.tts_queue  # 👈 永远拿到已初始化的同一份队列
     if q.full():
         # 可选：带上 Retry-After 头
@@ -184,7 +200,7 @@ async def generate_audio(request: Request, project_id: int, dto: LineCreateDTO,l
     q.put_nowait((project_id, dto))
     queue_size = q.qsize()  # 入队后的队列大小
     line_service.update_line(dto.id, {"status": "processing"})
-    
+
     # 入队后立即广播队列大小，让前端实时看到更新
     await manager.broadcast({
         "event": "line_update",
@@ -193,9 +209,9 @@ async def generate_audio(request: Request, project_id: int, dto: LineCreateDTO,l
         "progress": queue_size,
         "meta": f"已入队，等待生成"
     })
-    
+
     logging.info("队列剩余数量: %s", queue_size)
-    return {"code": 200, "message": "已入队", "data": {"line_id": dto.id}}
+    return Res(data={"line_id": dto.id}, code=200, message="已入队")
 
 
 # 改为异步任务
@@ -328,13 +344,20 @@ async def correct_subtitle_pinyin(
     text = "\n".join([line.text_content for line in lines])
     output_dir_path = os.path.join(os.path.dirname(paths[0]), "result")
     output_subtitle_path = os.path.join(output_dir_path, "result.srt")
-    
+
     if not os.path.exists(output_subtitle_path):
         logging.info("请先导出音频")
         return Res(data=None, code=400, message="请先导出音频")
-    
+
     # 拼音矫正输出到独立文件
     pinyin_subtitle_path = os.path.join(output_dir_path, "result_pinyin.srt")
+    # 文件操作前校验路径不指向系统关键目录
+    try:
+        assert_path_not_system_critical(output_subtitle_path)
+        assert_path_not_system_critical(pinyin_subtitle_path)
+    except ValueError:
+        logging.warning("拒绝矫正字幕,路径非法: %s", pinyin_subtitle_path)
+        return Res(data=None, code=400, message="字幕路径非法,拒绝操作")
     shutil.copy(output_subtitle_path, pinyin_subtitle_path)
     line_service.correct_subtitle_pinyin(text, pinyin_subtitle_path)
     logging.info("整体字幕矫正完成（拼音匹配）：%s", pinyin_subtitle_path)
@@ -348,10 +371,16 @@ async def correct_subtitle_pinyin(
             # 单条字幕也输出到 _pinyin 文件
             base, ext = os.path.splitext(subtitle_path)
             pinyin_single_path = f"{base}_pinyin{ext}"
+            try:
+                assert_path_not_system_critical(subtitle_path)
+                assert_path_not_system_critical(pinyin_single_path)
+            except ValueError:
+                logging.warning("跳过单条字幕矫正,路径非法: %s", subtitle_path)
+                continue
             shutil.copy(subtitle_path, pinyin_single_path)
             line_service.correct_subtitle_pinyin(line_text, pinyin_single_path)
             logging.info("单条字幕矫正完成：%s", line.id)
-    
+
     return Res(data=None, code=200, message="拼音匹配矫正完成")
 
 
@@ -401,11 +430,18 @@ async def correct_subtitle_llm(
     
     # LLM矫正输出到独立文件
     llm_subtitle_path = os.path.join(output_dir_path, "result_llm.srt")
+    # 文件操作前校验路径不指向系统关键目录
+    try:
+        assert_path_not_system_critical(output_subtitle_path)
+        assert_path_not_system_critical(llm_subtitle_path)
+    except ValueError:
+        logging.warning("拒绝矫正字幕,路径非法: %s", llm_subtitle_path)
+        return Res(data=None, code=400, message="字幕路径非法,拒绝操作")
     shutil.copy(output_subtitle_path, llm_subtitle_path)
     line_service.correct_subtitle_llm(
-        text, llm_subtitle_path, 
-        llm_provider_id=project.llm_provider_id, 
-        llm_model=project.llm_model, 
+        text, llm_subtitle_path,
+        llm_provider_id=project.llm_provider_id,
+        llm_model=project.llm_model,
         batch_size=batch_size
     )
     logging.info("整体字幕矫正完成（LLM）：%s", llm_subtitle_path)
@@ -419,6 +455,12 @@ async def correct_subtitle_llm(
             # 单条字幕也输出到 _llm 文件
             base, ext = os.path.splitext(subtitle_path)
             llm_single_path = f"{base}_llm{ext}"
+            try:
+                assert_path_not_system_critical(subtitle_path)
+                assert_path_not_system_critical(llm_single_path)
+            except ValueError:
+                logging.warning("跳过单条字幕矫正,路径非法: %s", subtitle_path)
+                continue
             shutil.copy(subtitle_path, llm_single_path)
             line_service.correct_subtitle_llm(
                 line_text, llm_single_path,
@@ -427,6 +469,6 @@ async def correct_subtitle_llm(
                 batch_size=batch_size
             )
             logging.info("单条字幕矫正完成：%s", line.id)
-    
+
     return Res(data=None, code=200, message="LLM矫正完成")
 

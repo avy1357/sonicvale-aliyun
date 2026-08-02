@@ -2,7 +2,7 @@ import logging
 import os
 from datetime import datetime
 from typing import Optional, List
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -44,10 +44,10 @@ def get_voice_manager_service(db: Session = Depends(get_db)) -> VolcanoVoiceMana
             description="查询指定火山引擎 TTS 提供商下的音色训练状态列表")
 def batch_list_train_status(
     tts_provider_id: int,
-    page_number: int = 1,
-    page_size: int = 10,
+    page_number: int = Query(default=1, ge=1, le=100),
+    page_size: int = Query(default=10, ge=1, le=500),
     state: Optional[str] = None,
-    speaker_ids: Optional[str] = None,
+    speaker_ids: Optional[str] = Query(default=None, max_length=1000),
     next_token: Optional[str] = None,
     max_results: Optional[int] = None,
     order_time_start: Optional[int] = None,
@@ -156,7 +156,7 @@ def renew_voices(
              summary="同步火山引擎音色到本地",
              description="将火山引擎平台的音色同步到本地数据库")
 def sync_voices(
-    tts_provider_id: int,
+    tts_provider_id: int = Query(..., ge=1),
     db: Session = Depends(get_db),
     service: VolcanoVoiceManagerService = Depends(get_voice_manager_service)
 ):
@@ -177,8 +177,8 @@ def sync_voices(
              summary="同步单个火山引擎音色到本地",
              description="将火山引擎平台的单个音色同步到本地数据库")
 def sync_single_voice(
-    tts_provider_id: int,
-    speaker_id: str,
+    tts_provider_id: int = Query(..., ge=1),
+    speaker_id: str = Query(..., max_length=255),
     db: Session = Depends(get_db),
     service: VolcanoVoiceManagerService = Depends(get_voice_manager_service)
 ):

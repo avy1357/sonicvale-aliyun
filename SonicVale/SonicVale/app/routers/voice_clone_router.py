@@ -1,6 +1,6 @@
 import logging
 from typing import List
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core.response import Res
@@ -89,7 +89,7 @@ def upload_audio(dto: VoiceCloneUploadDTO,
 @router.post("/status", response_model=Res[VoiceCloneStatusDTO],
              summary="查询训练状态",
              description="查询音色训练状态并更新本地记录")
-def query_status(clone_id: int,
+def query_status(clone_id: int = Query(..., ge=1),
                  service: VoiceCloneService = Depends(get_voice_clone_service)):
     try:
         result = service.query_training_status(clone_id)
@@ -98,9 +98,11 @@ def query_status(clone_id: int,
         status_msg = status_map.get(status, "未知")
 
         clone = service.get_voice_clone(clone_id)
+        if not clone:
+            return Res(data=None, code=404, message="声音复刻记录不存在")
         res = VoiceCloneStatusDTO(
             clone_id=clone_id,
-            speaker_id=clone.speaker_id if clone else "",
+            speaker_id=clone.speaker_id,
             status=status,
             version=result.get("version"),
             demo_audio_url=result.get("demo_audio"),

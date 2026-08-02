@@ -84,7 +84,9 @@ def update_prompt(prompt_id: int, dto: PromptCreateDTO, service: PromptService =
 
     success = service.update_prompt(prompt_id,dto.dict(exclude_unset=True))
     if success:
-        return Res(data=dto, code=200, message="更新成功")
+        # 返回更新后的实体,而非入参 dto
+        updated = service.get_prompt(prompt_id)
+        return Res(data=PromptResponseDTO(**updated.__dict__), code=200, message="更新成功")
     else:
         return Res(data=None, code=400, message="更新失败,可能是不存在该任务或提示词数据不完整")
 
@@ -92,10 +94,10 @@ def update_prompt(prompt_id: int, dto: PromptCreateDTO, service: PromptService =
 # ------------------- 删除提示词 -------------------
 @router.delete("/{prompt_id}", response_model=Res,
                summary="删除提示词",
-               description="根据提示词ID删除提示词,并且级联删除提示词下所有章节以及内容")
+               description="根据提示词ID删除提示词,暂未实现级联删除")
 def delete_prompt(prompt_id: int, service: PromptService = Depends(get_service)):
     success = service.delete_prompt(prompt_id)
-    # todo 级联删除提示词所有相关内容，比如提示词下所有章节以及内容
+    # 暂未实现级联删除提示词相关内容
     if success:
         return Res(data=None, code=200, message="删除成功")
     else:

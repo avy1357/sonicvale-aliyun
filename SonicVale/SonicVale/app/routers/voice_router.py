@@ -47,7 +47,8 @@ def process_voice_audio(dto: VoiceAudioProcessDTO, voice_service: VoiceService =
     try:
         result = voice_service.process_audio(dto)
         if result:
-            return Res(data=dto.audio_path, code=200, message="处理成功")
+            # 不回显完整路径,仅返回处理结果标志
+            return Res(data="ok", code=200, message="处理成功")
         else:
             return Res(data=None, code=400, message="处理失败")
     except FileNotFoundError as e:
@@ -129,7 +130,7 @@ def get_all_voices(tts_provider_id: int, voice_service: VoiceService = Depends(g
         res = [VoiceResponseDTO(**e.__dict__) for e in entities]
         return Res(data=res, code=200, message="查询成功")
     else:
-        return Res(data=[], code=404, message="项目不存在音色")
+        return Res(data=[], code=200, message="查询成功")
 
 
 @router.post("", response_model=Res[VoiceResponseDTO],
@@ -183,7 +184,7 @@ def get_voice(voice_id: int, voice_service: VoiceService = Depends(get_voice_ser
 def update_voice(voice_id: int, dto: VoiceCreateDTO, voice_service: VoiceService = Depends(get_voice_service)):
     """更新音色:不在路由层重复查询,统一由 service 校验并抛业务异常"""
     try:
-        updated = voice_service.update_voice(voice_id, dto.dict())
+        updated = voice_service.update_voice(voice_id, dto.dict(exclude_unset=True))
         res = VoiceResponseDTO(**updated.__dict__)
         return Res(data=res, code=200, message="修改成功")
     except VoiceNotFoundError as e:

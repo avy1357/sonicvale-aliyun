@@ -17,11 +17,14 @@ _SECRET_FIELDS = ("api_key", "x_api_key", "access_key_id", "access_key_secret")
 
 
 def _mask_secrets(entity) -> dict:
-    """返回脱敏后的字段字典，敏感凭证用 '***' 替代"""
+    """返回脱敏后的字段字典,敏感凭证改用布尔标志(配合 ResponseDTO 的 has_* 字段)"""
     data = {k: v for k, v in entity.__dict__.items() if not k.startswith("_")}
+    data["has_api_key"] = bool(data.get("api_key"))
+    data["has_x_api_key"] = bool(data.get("x_api_key"))
+    data["has_access_key_id"] = bool(data.get("access_key_id"))
+    data["has_access_key_secret"] = bool(data.get("access_key_secret"))
     for field in _SECRET_FIELDS:
-        if data.get(field):
-            data[field] = "***"
+        data.pop(field, None)
     return data
 
 # 依赖注入（实际TTS供应商可用 DI 容器）
@@ -104,11 +107,9 @@ def update_tts_provider(tts_provider_id: int, dto: TTSProviderCreateDTO, service
 
     success = service.update_tts_provider(tts_provider_id,dto.dict(exclude_unset=True))
     if success:
-        # C6: 脱敏返回,避免响应中回显明文凭据
-        masked_data = dto.dict()
-        for field in _SECRET_FIELDS:
-            if masked_data.get(field):
-                masked_data[field] = "***"
+        # 返回更新后的实体(脱敏),而非入参 dto
+        updated = service.get_tts_provider(tts_provider_id)
+        masked_data = _mask_secrets(updated)
         return Res(data=masked_data, code=200, message="更新成功")
     else:
         return Res(data=None, code=400, message="更新失败")
@@ -118,7 +119,12 @@ def update_tts_provider(tts_provider_id: int, dto: TTSProviderCreateDTO, service
 # 测试tts是否正常
 @router.post("/test", response_model=Res)
 def test_tts_provider(dto: TTSProviderCreateDTO, service: TTSProviderService = Depends(get_service)):
-    logging.info(f"测试 TTS 配置: name={dto.name}, provider_type={dto.provider_type}, voice_type={dto.voice_type}, api_key={'[有]' if dto.api_key else '[空]'}, x_api_key={'[有]' if dto.x_api_key else '[空]'}")
+    logging.info(
+        "测试 TTS 配置: name=%s, provider_type=%s, voice_type=%s, api_key=%s, x_api_key=%s",
+        dto.name, dto.provider_type, dto.voice_type,
+        "[有]" if dto.api_key else "[空]",
+        "[有]" if dto.x_api_key else "[空]",
+    )
     entity = TTSProviderEntity(**dto.dict())
     success = service.test_tts_provider(entity)
     if success:
