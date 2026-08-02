@@ -1,12 +1,14 @@
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.response import Res
 from app.db.database import get_db
 from app.dto.emotion_dto import EmotionResponseDTO, EmotionCreateDTO
 from app.entity.emotion_entity import EmotionEntity
+from app.models.po import LinePO
 from app.repositories.line_repository import LineRepository
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.emotion_repository import EmotionRepository
@@ -84,11 +86,15 @@ def update_emotion(emotion_id: int, dto: EmotionCreateDTO, emotion_service: Emot
         return Res(data=None, code=400, message="修改失败,情绪枚举已存在")
 
 
-# 根据id，删除，不开放
+# 根据id，删除
 @router.delete("/{emotion_id}", response_model=Res,
                summary="删除情绪枚举",
-               description="根据情绪枚举id删除情绪枚举信息")
-def delete_emotion(emotion_id: int, emotion_service: EmotionService = Depends(get_emotion_service)):
+               description="根据情绪枚举id删除情绪枚举信息。已被台词引用时返回 409,需先解除引用")
+def delete_emotion(emotion_id: int, db: Session = Depends(get_db), emotion_service: EmotionService = Depends(get_emotion_service)):
+    # 引用检查:emotion 是全局枚举,被 lines 表引用,任意删除会产生孤儿引用
+    referenced = db.execute(select(LinePO.id).where(LinePO.emotion_id == emotion_id).limit(1)).first()
+    if referenced:
+        raise HTTPException(status_code=409, detail="该情绪枚举已被台词引用,无法删除,请先解除引用")
     success = emotion_service.delete_emotion(emotion_id)
     if success:
         return Res(data=None, code=200, message="删除成功")

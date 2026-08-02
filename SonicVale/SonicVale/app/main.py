@@ -1,5 +1,6 @@
 # app/main.py
 import asyncio
+import hmac
 import logging
 import os
 from concurrent.futures import ThreadPoolExecutor
@@ -162,7 +163,7 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         # WebSocket：通过 query 参数校验
         if path == "/ws":
             token = request.query_params.get("api_key")
-            if token != SVC_API_KEY:
+            if not token or not isinstance(SVC_API_KEY, str) or not hmac.compare_digest(token, SVC_API_KEY):
                 return JSONResponse(status_code=401, content=Res(code=401, message="WebSocket 认证失败", data=None).dict())
             return await call_next(request)
 
@@ -170,7 +171,7 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         auth = request.headers.get("Authorization", "")
         prefix = "Bearer "
         token = auth[len(prefix):] if auth.startswith(prefix) else ""
-        if token != SVC_API_KEY:
+        if not token or not isinstance(SVC_API_KEY, str) or not hmac.compare_digest(token, SVC_API_KEY):
             return JSONResponse(status_code=401, content=Res(code=401, message="未授权：API Key 无效或缺失", data=None).dict())
 
         return await call_next(request)
@@ -196,9 +197,14 @@ async def http_exception_handler(request: Request, exc: HTTPException):
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     """处理请求参数校验失败，统一为 Res 格式"""
     logging.warning("参数校验失败 %s %s: %s", request.method, request.url.path, exc.errors())
+    # 仅返回简化错误信息（字段名 + 提示），避免泄露 type/url 等内部结构
+    simplified_errors = [
+        {"field": ".".join(str(x) for x in e.get("loc", [])), "msg": e.get("msg", "")}
+        for e in exc.errors()
+    ]
     return JSONResponse(
         status_code=422,
-        content=Res(code=422, message="请求参数校验失败", data=exc.errors()).dict(),
+        content=Res(code=422, message="请求参数校验失败", data=simplified_errors).dict(),
     )
 
 

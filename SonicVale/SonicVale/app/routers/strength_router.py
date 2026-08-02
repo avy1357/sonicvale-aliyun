@@ -1,12 +1,14 @@
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.response import Res
 from app.db.database import get_db
 from app.dto.strength_dto import StrengthResponseDTO, StrengthCreateDTO
 from app.entity.strength_entity import StrengthEntity
+from app.models.po import LinePO
 
 from app.repositories.strength_repository import StrengthRepository
 
@@ -81,11 +83,15 @@ def update_strength(strength_id: int, dto: StrengthCreateDTO, strength_service: 
         return Res(data=None, code=400, message="修改失败，情绪强弱枚举名已存在")
 
 
-# 根据id，删除，不开放
+# 根据id，删除
 @router.delete("/{strength_id}", response_model=Res,
                summary="删除情绪强弱枚举",
-               description="根据情绪强弱枚举id删除情绪强弱枚举信息")
-def delete_strength(strength_id: int, strength_service: StrengthService = Depends(get_strength_service)):
+               description="根据情绪强弱枚举id删除情绪强弱枚举信息。已被台词引用时返回 409,需先解除引用")
+def delete_strength(strength_id: int, db: Session = Depends(get_db), strength_service: StrengthService = Depends(get_strength_service)):
+    # 引用检查:strength 是全局枚举,被 lines 表引用,任意删除会产生孤儿引用
+    referenced = db.execute(select(LinePO.id).where(LinePO.strength_id == strength_id).limit(1)).first()
+    if referenced:
+        raise HTTPException(status_code=409, detail="该情绪强弱枚举已被台词引用,无法删除,请先解除引用")
     success = strength_service.delete_strength(strength_id)
     if success:
         return Res(data=None, code=200, message="删除成功")
