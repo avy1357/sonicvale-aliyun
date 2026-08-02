@@ -30,7 +30,7 @@
       <el-slider v-model="rate" :min="0.5" :max="2.0" :step="0.1" class="slider" />
 
       <span class="lbl">音量</span>
-      <el-slider v-model="vol2x" :min="0" :max="2.0" :step="0.01" class="slider" />
+      <el-slider v-model="vol2x" :min="0" :max="1.0" :step="0.01" class="slider" />
 
       <span class="lbl">添加间隔(s)</span>
       <el-input-number v-model="tailSilence" :min="0" :max="30" :step="0.1" size="small" />
@@ -58,10 +58,10 @@ import Regions from 'wavesurfer.js/dist/plugins/regions.esm.js'
 
 const props = defineProps({
   src: { type: String, required: true },     // 建议传 file://；否则会尝试转换
-  speed: { type: Number, default: 1.0 },     // 初始速度
-  volume2x: { type: Number, default: 1.0 },  // 0~2.0（前端试听倍数）
-  startMs: { type: Number, default: null },  // 初始选区
-  endMs: { type: Number, default: null },
+  speed: { type: Number, default: 1.0, validator: v => v == null || (v >= 0.5 && v <= 2.0) },     // 初始速度
+  volume2x: { type: Number, default: 1.0, validator: v => v == null || (v >= 0 && v <= 2.0) },  // 0~2.0（前端试听倍数）
+  startMs: { default: null, validator: v => v == null || typeof v === 'number' },  // 初始选区
+  endMs: { default: null, validator: v => v == null || typeof v === 'number' },
 })
 
 const emit = defineEmits([

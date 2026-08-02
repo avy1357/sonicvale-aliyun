@@ -1,4 +1,5 @@
-from sqlalchemy import Sequence, select, func
+from sqlalchemy import select, func
+from typing import Sequence
 
 from app.core.enums import TaskEnum
 from app.core.llm_engine import LLMEngine
@@ -17,6 +18,9 @@ class PromptService:
 
     # 拆分台词prompt验证
     def validate_prompt_with_DUBBING(self, content: str):
+        # content 为 None/空时直接返回 False,避免 in 操作符对 None 报错
+        if not content:
+            return False
         REQUIRED_BLOCKS = [
             # ("<possible_characters>", "</possible_characters>", "{possible_characters}"),
             # ("<possible_emotions>", "</possible_emotions>", "{possible_emotions}"),
@@ -105,8 +109,20 @@ class PromptService:
                 task = TaskEnum(task)
             except ValueError:
                 return False
+        # task 为 None 时,查询原记录的 task 进行判断,避免跳过 DUBBING 校验
+        if task is None:
+            original = self.repository.get_by_id(prompt_id)
+            if original and original.task:
+                try:
+                    task = TaskEnum(original.task)
+                except ValueError:
+                    task = None
         if task == TaskEnum.DUBBING:
             content = data.get("content")
+            # content 为 None 时表示未修改 content,查询原记录
+            if content is None:
+                original = self.repository.get_by_id(prompt_id)
+                content = original.content if original else None
             if not self.validate_prompt_with_DUBBING(content=content):
                 return False
 

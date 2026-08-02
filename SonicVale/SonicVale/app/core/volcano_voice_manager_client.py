@@ -20,6 +20,9 @@ class VolcanoVoiceManagerClient:
     RETRY_DELAY = 2
 
     def __init__(self, access_key_id: str, access_key_secret: str, appid: str):
+        # 校验 appid 非空,避免后续接口因 AppID 缺失而失败
+        if not appid:
+            raise ValueError("appid 不能为空")
         self.access_key_id = access_key_id
         self.access_key_secret = access_key_secret
         self.appid = appid
@@ -111,7 +114,7 @@ class VolcanoVoiceManagerClient:
 
                 return result
 
-            except Exception as e:
+            except (ConnectionError, TimeoutError, OSError) as e:
                 if attempt < self.MAX_RETRIES - 1:
                     logging.warning("请求失败，第 %d 次重试: %s", attempt + 1, str(e))
                     time.sleep(self.RETRY_DELAY * (2 ** attempt))
@@ -169,7 +172,7 @@ class VolcanoVoiceManagerClient:
         coupon_id: Optional[str] = None,
     ) -> dict:
         payload = {
-            "AppID": int(self.appid),
+            "AppID": self.appid,
             "ResourceID": resource_id,
             "Code": code,
             "Times": times,

@@ -146,14 +146,13 @@ class VolcanoVoiceManagerService:
                     else:
                         existing.description = alias
 
-                # 每页统一提交,保证事务性
-                db.commit()
-
                 total_count = result.get("Result", {}).get("TotalCount", 0)
                 if page_number * page_size >= total_count:
                     break
 
                 page_number += 1
+            # 循环结束后统一 commit,保证整体事务性(任一页失败则全部回滚)
+            db.commit()
         except Exception:
             db.rollback()
             raise

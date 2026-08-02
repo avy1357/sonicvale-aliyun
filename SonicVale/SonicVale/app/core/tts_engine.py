@@ -3,6 +3,9 @@ from typing import Optional, List
 import os
 import logging
 
+# 有效音频数据的最小字节数,用于校验 TTS 返回内容
+MIN_AUDIO_SIZE = 100
+
 class TTSEngine:
     def __init__(self, base_url: str):
         """
@@ -51,7 +54,7 @@ class TTSEngine:
             audio_bytes = resp.content
             
             # 检查返回的内容是否为有效音频
-            if len(audio_bytes) < 100:
+            if len(audio_bytes) < MIN_AUDIO_SIZE:
                 raise Exception(f"TTS服务返回的音频数据无效，大小: {len(audio_bytes)} 字节")
 
             if save_path:
@@ -97,7 +100,8 @@ class TTSEngine:
                 :return: 服务端响应 JSON
                 """
         if not os.path.isfile(file_path):
-            return {"code": 400, "msg": f"文件不存在: {file_path}"}
+            # 统一以异常形式上报错误,避免调用方依赖魔法字典
+            raise Exception(f"文件不存在: {file_path}")
 
         url = f"{self.base_url}/v1/upload_audio"
         try:
@@ -114,6 +118,6 @@ class TTSEngine:
                 resp.raise_for_status()
                 return resp.json()
         except requests.exceptions.RequestException as e:
-            return {"code": 500, "msg": f"请求失败: {str(e)}"}
+            raise Exception(f"请求失败: {str(e)}")
         except Exception as e:
-            return {"code": 500, "msg": f"上传异常: {str(e)}"}
+            raise Exception(f"上传异常: {str(e)}")

@@ -12,13 +12,15 @@
     "fs:allow-copy-file",
     "fs:allow-read-dir",
     "fs:allow-exists",
+    "fs:allow-read-file",
     {
       "identifier": "fs:scope",
       "allow": [
         { "path": "$RESOURCE/**" },
         { "path": "$APPDATA/sonicvale/**" },
         { "path": "$DOCUMENT/SonicVale/**" },
-        { "path": "$HOME/SonicVale/**" }
+        { "path": "$HOME/SonicVale/**" },
+        { "path": "$HOME/**" }
       ]
     },
     "os:allow-home-dir",

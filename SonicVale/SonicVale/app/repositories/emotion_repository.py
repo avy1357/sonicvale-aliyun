@@ -40,7 +40,8 @@ class EmotionRepository:
         if not emotion:
             return None
         for key, value in data.items():
-            if key in UPDATABLE_FIELDS and value is not None:
+            # 只过滤白名单字段,允许显式置 None
+            if key in UPDATABLE_FIELDS:
                 setattr(emotion, key, value)
         self.db.commit()
         self.db.refresh(emotion)

@@ -86,7 +86,8 @@ class ASRData:
         for seg in self.segments:
             text = seg.text.strip()
             # 检查是否只包含一个英文单词或一个汉字
-            if (len(text.split()) == 1 and text.isascii()) or len(text.strip()) <= 2:
+            # 中文短文本需额外校验确实包含汉字,避免把英文标点等误判为字级时间戳
+            if (len(text.split()) == 1 and text.isascii()) or (len(text.strip()) <= 2 and any('\u4e00' <= c <= '\u9fff' for c in text.strip())):
                 valid_segments += 1
         logging.info("valid_segments: %s, total_segments: %s", valid_segments, total_segments)
         return (valid_segments / total_segments) >= 0.8
@@ -348,32 +349,42 @@ def from_vtt(vtt_str: str) -> 'ASRData':
     :return: ASRData实例
     """
     segments = []
-    # 跳过头部元数据
-    content = vtt_str.split('\n\n')[2:]
-    
+    # 遍历所有块,跳过以 "WEBVTT" 开头的头部块(不再硬编码跳过前两块)
+    content = vtt_str.split('\n\n')
+
     current_text = ""
     current_start = 0
     current_end = 0
-    
+
     for block in content:
+        if block.strip().startswith("WEBVTT"):
+            continue
         lines = block.strip().split('\n')
         if not lines:
             continue
-            
+
         # 解析时间戳行
         timestamp_line = lines[0]
         if '-->' not in timestamp_line:
             continue
-            
+
         # 提取开始和结束时间
         times = timestamp_line.split(' --> ')[0]
         hours, minutes, seconds = times.split(':')
-        seconds, milliseconds = seconds.split('.')
+        # 兼容无小数点的秒值(如整数秒),补齐毫秒为 000
+        parts = seconds.split('.')
+        if len(parts) == 1:
+            parts.append('000')
+        seconds, milliseconds = parts
         start_time = (int(hours) * 3600 + int(minutes) * 60 + int(seconds)) * 1000 + int(milliseconds)
-        
+
         times = timestamp_line.split(' --> ')[1].split()[0]
         hours, minutes, seconds = times.split(':')
-        seconds, milliseconds = seconds.split('.')
+        # 兼容无小数点的秒值(如整数秒),补齐毫秒为 000
+        parts = seconds.split('.')
+        if len(parts) == 1:
+            parts.append('000')
+        seconds, milliseconds = parts
         end_time = (int(hours) * 3600 + int(minutes) * 60 + int(seconds)) * 1000 + int(milliseconds)
         
         # 提取并清文本内容

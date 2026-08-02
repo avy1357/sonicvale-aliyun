@@ -770,6 +770,8 @@ const queue_rest_size = ref(0) // 后端返回的队列剩余长度
 let ws = null
 let wsRetry = 0
 let reconnectTimer = null
+let disposed = false // 组件卸载标志,阻止卸载后重连
+const maxRetries = 20 // WebSocket 最大重连次数,避免无限重连
 
 function wsUrl() {
     const httpBase = service.defaults.baseURL // 例如 'http://127.0.0.1:8000/'
@@ -842,12 +844,12 @@ function startHeartbeat() {
         try {
             ws.send(JSON.stringify({ type: 'ping', ts: Date.now() }));
             // addQueue({ title: '心跳发送ping', meta: '心跳机制', type: 'info' });
-        } catch { }
+        } catch (e) { console.warn('[ws] 发送心跳失败:', e) }
         if (heartbeatTimeout) clearTimeout(heartbeatTimeout);
         heartbeatTimeout = setTimeout(() => {
             // 未按期收到 pong，判定为假死，主动关闭触发重连
             addQueue({ title: '心跳超时', meta: '触发重连', type: 'warning' });
-            try { ws && ws.close(); } catch { }
+            try { ws && ws.close(); } catch (e) { console.warn('[ws] 心跳超时关闭失败:', e) }
         }, HEARTBEAT_DEADLINE);
     }, HEARTBEAT_INTERVAL);
 }
@@ -929,13 +931,21 @@ function connectWS() {
     }
 
     ws.onclose = () => {
+        // 组件已卸载,不再重连
+        if (disposed) return
+        // 重连次数已达上限,停止重连
+        if (wsRetry >= maxRetries) {
+            addQueue({ title: '任务通道重连次数已达上限', meta: `已重试 ${maxRetries} 次,停止重连`, type: 'danger' })
+            return
+        }
         const delay = Math.min(1000 * Math.pow(2, wsRetry++), 15000)
-        addQueue({ title: '任务通道已断开', meta: `将于 ${delay}ms 后重连`, type: 'warning' })
+        addQueue({ title: '任务通道已断开', meta: `将于 ${delay}ms 后重连(${wsRetry}/${maxRetries})`, type: 'warning' })
         reconnectTimer = setTimeout(connectWS, delay)
     }
 
-    ws.onerror = () => {
-        try { ws && ws.close() } catch { }
+    ws.onerror = (e) => {
+        console.warn('[ws] onerror:', e)
+        try { ws && ws.close() } catch (e) { console.warn(e) }
     }
 }
 
@@ -1326,19 +1336,6 @@ async function splitByLLM() {
     }
 }
 
-// async function confirmSaveInitLines() {
-//     if (!splitPreview.value.length) return
-//     const res = await request.post(`/chapters/save-init-lines/${projectId}/${activeChapterId.value}`, splitPreview.value)
-//     if (res?.code === 200) {
-//         ElMessage.success('已保存初始台词')
-//         // dialogSplitPreview.value = false
-//         await loadLines()
-//         await loadRoles()
-//     } else {
-//         ElMessage.error(res?.message || '保存失败')
-//     }
-// }
-
 // 台词列表
 const lines = ref([]) // LineResponseDTO[]
 
@@ -1371,9 +1368,13 @@ function tableHeaderStyle() { return { background: 'var(--el-fill-color-light)',
 
 
 
+let loadRequestId = 0 // 章节切换异步竞态保护:每次加载递增,返回时校验
 async function loadLines() {
     if (!activeChapterId.value) return
+    const reqId = ++loadRequestId
     const res = await lineAPI.getLinesByChapter(activeChapterId.value)
+    // 章节切换竞态保护:若期间又触发了新的加载,则丢弃本次结果
+    if (reqId !== loadRequestId) return
     lines.value = res?.code === 200 ? (res.data || []) : []
     // 音频默认参数：
     stats.value.lineCount = lines.value.length
@@ -1384,29 +1385,6 @@ async function loadLines() {
         }
     })
 }
-
-// async function doProcess(row) {
-//     if (!row?.id || !row.audio_path) return ElMessage.warning('该行无音频')
-//     try {
-//         const payload = {
-//             speed: Number(row._procSpeed || 1.0),
-//             volume: Number(row._procVolume || 1.0),
-//         }
-//         const res = await lineAPI.processAudio(row.id, payload)
-//         if (res?.code === 200) {
-//             ElMessage.success('处理完成')
-//             // 若另存，后端已更新 audio_path；这里刷新一次列表以拿到最新路径
-//             await loadLines()
-//             // 可选：自动播放预览
-//             // playLine(row)
-//         } else {
-//             ElMessage.error(res?.message || '处理失败')
-//         }
-//     } catch (e) {
-//         ElMessage.error('处理失败')
-//         console.error(e)
-//     }
-// }
 
 // 替换原来的两个函数
 function statusType(s) {
@@ -1473,13 +1451,8 @@ async function generateOne(row) {
             ElMessage.error(res?.message || '生成失败')
         }
     } catch (err) {
-        // ✅ 用户点击“取消”或关闭弹窗时
-        if (err === 'cancel' || err === 'close') {
-            ElMessage.info('已取消生成操作')
-        } else {
-            console.error('生成出错:', err)
-            ElMessage.error('生成失败，请稍后再试')
-        }
+        console.error('生成出错:', err)
+        ElMessage.error('生成失败，请稍后再试')
     }
 }
 
@@ -1671,6 +1644,8 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+    // 标记组件已卸载,阻止 WebSocket 重连
+    disposed = true
     // 清理 audioPlayer 事件监听器与资源
     try {
         audioPlayer.pause()
@@ -1678,7 +1653,7 @@ onUnmounted(() => {
         audioPlayer.removeEventListener('play', onAudioPlay)
         audioPlayer.removeEventListener('pause', onAudioPause)
         audioPlayer.removeEventListener('ended', onAudioEnded)
-    } catch { }
+    } catch (e) { console.warn(e) }
     // 清理试听音频 currentAudio，避免资源泄漏
     if (currentAudio) { currentAudio.pause(); currentAudio = null }
     // 清理重连定时器
@@ -1686,7 +1661,7 @@ onUnmounted(() => {
     // 清理心跳定时器
     stopHeartbeat()
     // 关闭 WebSocket 连接
-    try { ws && ws.close() } catch { }
+    try { ws && ws.close() } catch (e) { console.warn(e) }
     ws = null
 })
 
@@ -1787,12 +1762,16 @@ async function createRole() {
     const dup = roles.value.some(r => r.name === name)
     if (dup) {
         // 允许创建同名与否以你后端为准，这里仅提醒
-        await ElMessageBox.confirm(`已存在名为「${name}」的角色，仍要创建吗？`, '提示', {
-            confirmButtonText: '继续创建',
-            cancelButtonText: '取消',
-            type: 'warning',
-        }).catch(() => { return })
-        if (!name) return // 用户取消
+        try {
+            await ElMessageBox.confirm(`已存在名为「${name}」的角色，仍要创建吗？`, '提示', {
+                confirmButtonText: '继续创建',
+                cancelButtonText: '取消',
+                type: 'warning',
+            })
+        } catch {
+            // 用户取消,中断创建
+            return
+        }
     }
 
     // 选择一种：roleAPI 或 request
@@ -2142,20 +2121,6 @@ async function submitImportThird() {
 }
 
 // 完成配音，替换昵称
-
-// 保证跟行顺序一一对应；若后端返回已按 line_order 排好，这段可省略
-// const sortedLines = () => {
-//   const list = [...lines.value]
-//   // 如果有 line_order，就按它排；否则按当前顺序
-//   list.sort((a, b) => {
-//     const ao = a.line_order ?? Number.MAX_SAFE_INTEGER
-//     const bo = b.line_order ?? Number.MAX_SAFE_INTEGER
-//     return ao - bo
-//   })
-//   return list
-// }
-
-// 若你的后端返回的 lines 已经按 line_order 排好，可以直接用 lines.value
 
 function getFolderFromPath(audioPath) {
     if (!audioPath) return ''
@@ -2904,7 +2869,6 @@ async function batchProcessVolume() {
     } catch {
     }
 }
-// const playMode = ref('sequential') // 'single' = 单条, 'sequential' = 顺序
 const playMode = ref('sequential')
 try { playMode.value = localStorage.getItem('playMode') || 'sequential' } catch { }
 
@@ -2928,14 +2892,12 @@ function handleEnded({ handle, id }) {
     // 拿到当前行列表（确保按 line_order 排序）
     const list = [...displayedLines.value].sort((a, b) => a.line_order - b.line_order)
     const idx = list.findIndex(l => l.id === id)
-    if (idx === -1 || idx === list.length - 1) return // 找不到或最后一条
-
     if (idx === -1) {
         console.warn('handleEnded: 未找到当前行，终止顺序播放')
         return
     }
     if (idx === list.length - 1) {
-        return
+        return // 已是最后一条
     }
 
     // 向后查找下一个有音频的行
@@ -3331,24 +3293,24 @@ async function handleBatchImport() {
         )
 
 
-        // 3️⃣ 打开文件选择框
-        const pickerResult = await window.showOpenFilePicker({
-            types: [{ description: '文本文件', accept: { 'text/plain': ['.txt'] } }],
-            excludeAcceptAllOption: true,
-            multiple: false,
-        }).catch(() => null)
+        // 3️⃣ 打开文件选择框(使用 Tauri 原生对话框,替代浏览器 showOpenFilePicker)
+        const filePath = await native?.pickFile({
+            filters: [{ name: '文本文件', extensions: ['txt'] }]
+        })
 
-        if (!pickerResult || pickerResult.length === 0) {
+        if (!filePath) {
             ElMessage.info('已取消选择文件')
             return
         }
 
-        const [fileHandle] = pickerResult
-        const file = await fileHandle.getFile()
-        // ✅ 使用 TextDecoder 解决乱码
-        const arrayBuffer = await file.arrayBuffer()
+        // 读取文件内容(Tauri 环境下通过 fs 读取字节,再统一解码)
+        const fileBytes = await native?.readTextFile(filePath)
+        if (!fileBytes) {
+            ElMessage.error('无法读取所选文件,请确认文件在允许访问的目录内')
+            return
+        }
         // ✅ 仅 UTF-8 / GBK 自动识别
-        const { encoding, text } = decodeUtf8OrGbk(arrayBuffer);
+        const { encoding, text } = decodeUtf8OrGbk(fileBytes);
         // 如果文件内容为空
         if (!text.trim()) {
             ElMessage.warning('TXT 文件为空，未执行导入')

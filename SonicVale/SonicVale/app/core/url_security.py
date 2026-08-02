@@ -39,6 +39,10 @@ def _is_internal_ip(ip_str: str) -> bool:
 def validate_public_url(url: str, allow_private: Optional[bool] = None) -> str:
     """校验 URL 必须指向公网地址,防止 SSRF。
 
+    注意:本函数存在 DNS rebinding 理论风险(DNS 解析与实际请求之间可能被切换),
+    且 socket.getaddrinfo 为阻塞调用。异步上下文应通过 run_in_executor 包装。
+    生产环境建议改用 IP 直连方式。
+
     Args:
         url: 待校验的 URL
         allow_private: 是否允许内网地址。None 时使用环境变量 SVC_ALLOW_PRIVATE_URL
@@ -49,6 +53,8 @@ def validate_public_url(url: str, allow_private: Optional[bool] = None) -> str:
     Raises:
         ValueError: URL 非法或指向内网/回环地址
     """
+    # 注意:本函数存在 DNS rebinding 理论风险,且 socket.getaddrinfo 为阻塞调用。
+    # 异步上下文应通过 run_in_executor 包装。生产环境建议改用 IP 直连方式。
     if not url or not isinstance(url, str):
         raise ValueError("URL 不能为空")
 

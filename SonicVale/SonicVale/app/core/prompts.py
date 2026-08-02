@@ -106,6 +106,15 @@ def get_context2lines_prompt(possible_characters, novel_content,possible_emotion
     return textwrap.dedent(prompt)
 
 def get_prompt_str():
+    """生成默认的"拆分台词"提示词模板。
+
+    注意:本函数返回的是模板字符串,其中的 {possible_characters}、{possible_emotions}、
+    {possible_strengths}、{novel_content} 为字面量占位符,需保持原样。
+    这些占位符由 ChapterService.fill_prompt 后续通过 str.replace 填充实际内容,
+    因此此处不能调用 .format()(否则会因缺少参数而抛出 KeyError,
+    且会破坏 validate_prompt_with_DUBBING 对 {novel_content} 占位符的校验)。
+    本函数无用户输入参数,故无需调用 _sanitize_user_input。
+    """
     prompt = """
     你的任务是将给定小说内容划分为角色和内容，并输出为结构化JSON结果。
     台词识别规则：
@@ -114,28 +123,28 @@ def get_prompt_str():
     3. 若角色在已知角色列表<possible_characters>中，则直接使用该角色名；若不在列表中，则根据上下文合理判断角色身份。
     4. 相邻台词如属同一角色，可合并为一条，但单条台词长度不得超过150字。
     5. 若单条台词超过150字，需按语义完整性拆分为多条，每条不超过150字，并确保原文内容不缺失。
-    
+
     旁白识别规则：
     1. 所有非台词的叙述性内容（包括心理活动、环境描写、动作描写、场景过渡等）均标记为“旁白”。
     2. 必须保留原文的所有文字内容，不得遗漏、删改或省略任何字句。
     3. 相邻的旁白内容可合并为一条，但单条长度不得超过150字。
     4. 若单条旁白超过150字，需按语义完整性拆分为多条，每条不超过150字，确保原文内容完整呈现。
-    
+
     情绪与情绪强度识别规则：
     1. 根据上下文语境、语气及场景变化，为每条台词识别情绪和情绪强度。
     2. 情绪与强度必须严格从提供的情绪列表（possible_emotions）与强度列表（possible_strengths）中选择。
     3. “旁白”内容的情绪与强度统一为：情绪“平静”，强度“中等”。
     4. 情绪识别不得影响或改写原文内容，仅用于标注。
-    
+
     特殊情况处理：
     1. 多角色连续对话时，确保每条台词对应正确角色，避免角色错配。
     2. 当段落中混合出现旁白与台词时，应拆分为独立记录：旁白一条、台词一条。
     3. 输出结果不得出现遗漏、重复、合并错误或原文缺失的情况。
     4. 拆分、合并及情绪标注仅为结构化目的，须保证原文内容100%完整保留。
-    
+
     输出格式:
     严格输出为 json数组。
-    
+
     示例：
     小说原文：
     <novel_content>
@@ -146,24 +155,24 @@ def get_prompt_str():
       {"role_name": "旁白", "text_content": "一名靠前的灰衣少年似乎与石台上的少年颇为熟悉，他听得大伙的窃窃私语，不由得得意一笑，压低声音道", "emotion_name": "平静", "strength_name": "中等"},
       {"role_name": "灰衣少年", "text_content": "牧哥可是被选拔出来参加过“灵路”的人，我们整个北灵境中，可就牧哥一人有名额，你们应该也知道参加“灵路”的都是些什么变态吧？当年我们这北灵境可是因为此事沸腾了好一阵的，从那里出来的人，最后基本全部都是被“五大院”给预定了的。", "emotion_name": "高兴", "strength_name": "中等"}
     ]
-    
-    
+
+
     输入内容：
     可能包含的角色列表：
     <possible_characters>
     {possible_characters}
     </possible_characters>
-    
+
     可能包含的情绪列表：
     <possible_emotions>
     {possible_emotions}
     </possible_emotions>
-    
+
     可能包含的情绪强弱列表：
     <possible_strengths>
     {possible_strengths}
     </possible_strengths>
-    
+
     小说原文：
     <novel_content>
     {novel_content}

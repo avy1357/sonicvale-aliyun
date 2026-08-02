@@ -47,6 +47,9 @@ class BaseASR:
             try:
                 with open(self.CACHE_FILE, 'w', encoding='utf-8') as f:
                     json.dump(self.cache, f, ensure_ascii=False, indent=2)
+                # 设置缓存文件权限为仅属主可读写(Windows 下 chmod 权限模型不同,跳过)
+                if os.name != 'nt':
+                    os.chmod(self.CACHE_FILE, 0o600)
                 if os.path.exists(self.CACHE_FILE) and os.path.getsize(self.CACHE_FILE) > 10 * 1024 * 1024:
                     os.remove(self.CACHE_FILE)
             except IOError as e:

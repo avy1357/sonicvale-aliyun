@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import time
 from os import PathLike
 from typing import List, Optional, Union
@@ -55,11 +56,19 @@ class BcutASR(BaseASR):
         """申请上传"""
         if not self.file_binary:
             raise ValueError("none set data")
+        # 从 audio_path 提取实际文件名与扩展名,避免硬编码 "audio.mp3"
+        if isinstance(self.audio_path, bytes):
+            # bytes 输入无文件名,使用默认值
+            audio_name = "audio.mp3"
+            file_type = "mp3"
+        else:
+            audio_name = os.path.basename(self.audio_path) or "audio.mp3"
+            file_type = self.audio_path.split(".")[-1].lower() if "." in self.audio_path else "mp3"
         payload = json.dumps({
             "type": 2,
-            "name": "audio.mp3",
+            "name": audio_name,
             "size": len(self.file_binary),
-            "ResourceFileType": "mp3",
+            "ResourceFileType": file_type,
             "model_id": "8",
         })
 
@@ -81,7 +90,8 @@ class BcutASR(BaseASR):
         self.__clips = len(resp_data["upload_urls"])
 
         logging.info(
-            f"申请上传成功, 总计大小{resp_data['size'] // 1024}KB, {self.__clips}分片, 分片大小{resp_data['per_size'] // 1024}KB: {self.__in_boss_key}"
+            "申请上传成功, 总计大小%dKB, %d分片, 分片大小%dKB: %s",
+            resp_data['size'] // 1024, self.__clips, resp_data['per_size'] // 1024, self.__in_boss_key
         )
         self.__upload_part()
         self.__commit_upload()
@@ -91,7 +101,7 @@ class BcutASR(BaseASR):
         for clip in range(self.__clips):
             start_range = clip * self.__per_size
             end_range = (clip + 1) * self.__per_size
-            logging.info(f"开始上传分片{clip}: {start_range}-{end_range}")
+            logging.info("开始上传分片%d: %d-%d", clip, start_range, end_range)
             resp = self.session.put(
                 self.__upload_urls[clip],
                 data=self.file_binary[start_range:end_range],
@@ -101,7 +111,7 @@ class BcutASR(BaseASR):
             resp.raise_for_status()
             etag = resp.headers.get("Etag")
             self.__etags.append(etag)
-            logging.info(f"分片{clip}上传成功: {etag}")
+            logging.info("分片%d上传成功: %s", clip, etag)
 
     def __commit_upload(self) -> None:
         """提交上传数据"""
@@ -121,7 +131,7 @@ class BcutASR(BaseASR):
         resp.raise_for_status()
         resp = resp.json()
         self.__download_url = resp["data"]["download_url"]
-        logging.info(f"提交成功")
+        logging.info("提交成功")
 
     def create_task(self) -> str:
         """开始创建转换任务"""
@@ -132,7 +142,7 @@ class BcutASR(BaseASR):
         resp.raise_for_status()
         resp = resp.json()
         self.task_id = resp["data"]["task_id"]
-        logging.info(f"任务已创建: {self.task_id}")
+        logging.info("任务已创建: %s", self.task_id)
         return self.task_id
 
     def result(self, task_id: Optional[str] = None):
@@ -143,6 +153,11 @@ class BcutASR(BaseASR):
         return resp["data"]
 
     def _run(self):
+        """执行 BCut ASR 任务。
+
+        注意:本方法含 time.sleep 轮询等待,为同步阻塞调用。
+        异步路由中应通过 run_in_executor 包装,避免阻塞事件循环。
+        """
         self.upload()
         self.create_task()
         # 轮询检查任务状态
@@ -157,7 +172,7 @@ class BcutASR(BaseASR):
         else:
             raise TimeoutError("BCut ASR 任务超时, 未在预期时间内完成")
 
-        logging.info(f"转换成功")
+        logging.info("转换成功")
         result = task_resp.get("result")
         if not result:
             raise ValueError("BCut ASR 返回结果为空")

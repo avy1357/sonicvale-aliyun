@@ -163,14 +163,13 @@ class AliyunVoiceCloneService:
                     else:
                         existing.description = voice_name
 
-                # 每页统一提交,保证事务性
-                db.commit()
-
                 page_count = result.get("page_count", 0)
                 if page_count < page_size:
                     break
 
                 page_index += 1
+            # 循环结束后统一 commit,保证整体事务性(任一页失败则全部回滚)
+            db.commit()
         except Exception:
             db.rollback()
             raise

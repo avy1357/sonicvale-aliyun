@@ -1,7 +1,7 @@
 
 import json
 
-from sqlalchemy import Column, Integer, String, Text, Enum, ForeignKey, DateTime, JSON, Index
+from sqlalchemy import Column, Integer, String, Text, Enum, ForeignKey, DateTime, JSON, Index, UniqueConstraint
 from datetime import datetime, timezone
 
 from app.db.database import Base
@@ -42,6 +42,10 @@ class RolePO(Base):
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
 
+    __table_args__ = (
+        UniqueConstraint("project_id", "name", name="uq_role_project_name"),
+    )
+
 
 # ------------------------------
 # 3. 音色表 voices
@@ -61,6 +65,10 @@ class VoicePO(Base):
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc),
                         nullable=False)
 
+    __table_args__ = (
+        UniqueConstraint("tts_provider_id", "name", name="uq_voice_provider_name"),
+    )
+
 # 多情绪表
 class MultiEmotionVoicePO(Base):
     __tablename__ = "multi_emotion"
@@ -72,6 +80,10 @@ class MultiEmotionVoicePO(Base):
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc),
                         nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("voice_id", "emotion_id", "strength_id", name="uq_multi_emotion_voice"),
+    )
 
 # ------------------------------
 # 4. 章节表 chapters
@@ -87,6 +99,10 @@ class ChapterPO(Base):
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc),
                         nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("project_id", "title", name="uq_chapter_project_title"),
+    )
 
 
 

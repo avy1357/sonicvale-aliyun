@@ -319,7 +319,11 @@ const loadClones = async () => {
 }
 
 const onTtsChange = () => {
-  const [type, id] = selectedTtsId.value.split('-')
+  // 按第一个 '-' 分割,避免 type 含 '-' 时解析错误
+  const sepIdx = selectedTtsId.value.indexOf('-')
+  if (sepIdx === -1) return
+  const type = selectedTtsId.value.slice(0, sepIdx)
+  const id = selectedTtsId.value.slice(sepIdx + 1)
   currentProviderType.value = type
   currentTtsId.value = parseInt(id)
   aliyunPage.value = 1

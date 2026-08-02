@@ -40,6 +40,8 @@ class TTSProviderRepository:
         """获取tts下所有tts供应商"""
         pos = self.db.execute(select(TTSProviderPO)).scalars().all()
         for po in pos:
+            # 解密前先脱离 session,避免解密后的明文被 session 跟踪并回写数据库
+            self.db.expunge(po)
             decrypt_provider_fields(po, TTS_PROVIDER_SECRET_FIELDS)
         return pos
 
@@ -63,7 +65,8 @@ class TTSProviderRepository:
         # 对 dict 中的敏感字段加密(只加密存在的字段)
         encrypt_provider_dict(tts_provider_data, TTS_PROVIDER_SECRET_FIELDS)
         for key, value in tts_provider_data.items():
-            if key in UPDATABLE_FIELDS and value is not None:
+            # 只过滤白名单字段,允许显式置 None
+            if key in UPDATABLE_FIELDS:
                 setattr(tts_provider, key, value)
 
         self.db.commit()

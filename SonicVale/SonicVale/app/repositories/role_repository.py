@@ -38,7 +38,8 @@ class RoleRepository:
         if not role:
             return None
         for key, value in role_data.items():
-            if key in UPDATABLE_FIELDS and value is not None:  # 只更新白名单且不为空的字段
+            # 只过滤白名单字段,允许显式置 None(如清空 default_voice_id)
+            if key in UPDATABLE_FIELDS:
                 setattr(role, key, value)
 
         self.db.commit()

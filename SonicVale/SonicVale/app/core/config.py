@@ -13,5 +13,7 @@ def getConfigPath():
 
 def getFfmpegPath():
     BASE_DIR = getattr(sys, "_MEIPASS", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    FFMPEG_PATH = os.path.join(BASE_DIR, "core", "ffmpeg", "ffmpeg.exe")
+    # 根据平台选择可执行文件名:Windows 用 ffmpeg.exe,其他平台用 ffmpeg
+    ffmpeg_name = "ffmpeg.exe" if sys.platform == "win32" else "ffmpeg"
+    FFMPEG_PATH = os.path.join(BASE_DIR, "core", "ffmpeg", ffmpeg_name)
     return FFMPEG_PATH

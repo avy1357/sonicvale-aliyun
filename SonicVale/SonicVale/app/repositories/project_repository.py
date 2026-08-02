@@ -35,7 +35,8 @@ class ProjectRepository:
         if not project:
             return None
         for key, value in project_data.items():
-            if key in UPDATABLE_FIELDS and value is not None:
+            # 只过滤白名单字段,允许显式置 None
+            if key in UPDATABLE_FIELDS:
                 setattr(project, key, value)
         self.db.commit()
         self.db.refresh(project)
@@ -57,5 +58,7 @@ class ProjectRepository:
 
     def search(self, keyword: str) -> Sequence[ProjectPO]:
         """模糊搜索"""
-        stmt = select(ProjectPO).where(ProjectPO.name.ilike(f"%{keyword}%"))
+        # 转义 LIKE 通配符,防止注入
+        escaped_keyword = keyword.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+        stmt = select(ProjectPO).where(ProjectPO.name.ilike(f"%{escaped_keyword}%", escape='\\'))
         return self.db.execute(stmt).scalars().all()

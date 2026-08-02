@@ -97,27 +97,32 @@ class ProjectService:
         project = self.repository.get_by_id(project_id)
         if not project:
             return False
-        # 1. 查询该项目下的所有章节 id
-        chapter_ids = db.execute(
-            select(ChapterPO.id).where(ChapterPO.project_id == project_id)
-        ).scalars().all()
-        # 2. 删除这些章节关联的 lines
-        if chapter_ids:
+        try:
+            # 1. 查询该项目下的所有章节 id
+            chapter_ids = db.execute(
+                select(ChapterPO.id).where(ChapterPO.project_id == project_id)
+            ).scalars().all()
+            # 2. 删除这些章节关联的 lines
+            if chapter_ids:
+                db.execute(
+                    delete(LinePO).where(LinePO.chapter_id.in_(chapter_ids))
+                )
+            # 3. 删除 chapters
             db.execute(
-                delete(LinePO).where(LinePO.chapter_id.in_(chapter_ids))
+                delete(ChapterPO).where(ChapterPO.project_id == project_id)
             )
-        # 3. 删除 chapters
-        db.execute(
-            delete(ChapterPO).where(ChapterPO.project_id == project_id)
-        )
-        # 4. 删除 roles
-        db.execute(
-            delete(RolePO).where(RolePO.project_id == project_id)
-        )
-        # 5. 删除 project 本身并提交
-        db.delete(project)
-        db.commit()
-        return True
+            # 4. 删除 roles
+            db.execute(
+                delete(RolePO).where(RolePO.project_id == project_id)
+            )
+            # 5. 删除 project 本身并提交
+            db.delete(project)
+            db.commit()
+            return True
+        except Exception as e:
+            logging.exception("删除项目失败: %s", e)
+            db.rollback()
+            raise
 
 
     def search_projects(self, keyword: str) -> Sequence[ProjectEntity]:

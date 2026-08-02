@@ -1,4 +1,4 @@
-from sqlalchemy import Sequence
+from typing import Sequence
 
 from app.entity.multi_emotion_voice_entity import MultiEmotionVoiceEntity
 from app.models.po import MultiEmotionVoicePO

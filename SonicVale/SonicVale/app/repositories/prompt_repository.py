@@ -34,7 +34,8 @@ class PromptRepository:
         if not prompt:
             return None
         for key, value in prompt_data.items():
-            if key in UPDATABLE_FIELDS and value is not None:  # 只更新白名单且不为空的字段
+            # 只过滤白名单字段,允许显式置 None
+            if key in UPDATABLE_FIELDS:
                 setattr(prompt, key, value)
         self.db.commit()
         self.db.refresh(prompt)
@@ -62,5 +63,7 @@ class PromptRepository:
 
     def search(self, keyword: str) -> Sequence[PromptPO]:
         """模糊搜索"""
-        stmt = select(PromptPO).where(PromptPO.name.ilike(f"%{keyword}%"))
+        # 转义 LIKE 通配符,防止注入
+        escaped_keyword = keyword.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+        stmt = select(PromptPO).where(PromptPO.name.ilike(f"%{escaped_keyword}%", escape='\\'))
         return self.db.execute(stmt).scalars().all()

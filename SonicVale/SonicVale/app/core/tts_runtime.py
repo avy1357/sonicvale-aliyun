@@ -77,6 +77,9 @@ async def tts_worker(app: FastAPI):
             })
 
             role = role_service.get_role(dto.role_id)
+            # 校验角色存在,避免后续 AttributeError
+            if role is None:
+                raise ValueError(f"角色不存在(id={dto.role_id})")
             voice = voice_service.get_voice(role.default_voice_id)
             reference_path = voice.reference_path
 
@@ -85,7 +88,13 @@ async def tts_worker(app: FastAPI):
 
             # 9.13
             emotion = emotion_service.get_emotion(dto.emotion_id)
+            # 校验情绪存在,避免后续 AttributeError
+            if emotion is None:
+                raise ValueError(f"情绪不存在(id={dto.emotion_id})")
             strength = strength_service.get_strength(dto.strength_id)
+            # 校验强度存在,避免后续 AttributeError
+            if strength is None:
+                raise ValueError(f"强度不存在(id={dto.strength_id})")
             # 拼接
             # emo_text = f"{strength.name}的{emotion.name} "
             # if emotion.name is "解说":

@@ -95,7 +95,7 @@ def _decrypt_value(cipher: str) -> str:
     try:
         token = cipher[4:].encode("ascii")
         return _get_fernet().decrypt(token).decode("utf-8")
-    except Exception as e:
+    except (InvalidToken, ValueError) as e:
         logger.warning("解密失败, 返回原值: %s", e)
         return cipher
 

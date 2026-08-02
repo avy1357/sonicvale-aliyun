@@ -22,11 +22,12 @@ class LLMEngine:
         self.model_name = model_name
         
         # custom_params从string转为dict，添加异常处理
+        # 注意:custom_params 可能为 None,需同时捕获 TypeError
         try:
             custom_params = json.loads(custom_params)
             if not isinstance(custom_params, dict):
                 raise ValueError("无效的 custom_params")
-        except json.JSONDecodeError as e:
+        except (json.JSONDecodeError, TypeError) as e:
             logging.error("custom_params JSON解析失败: %s, 使用默认值", str(e))
             custom_params = {
                 "response_format": {"type": "json_object"},
@@ -58,7 +59,11 @@ class LLMEngine:
             timeout=120,
             **self.custom_params
         )
+        # 访问 choices 前校验非空,避免 IndexError
+        if not response.choices:
+            raise ValueError("LLM 返回空 choices")
         return response.choices[0].message.content
+    # 注意:本方法为同步阻塞调用(含同步 OpenAI 客户端与 time.sleep),异步路由中应通过 run_in_executor 包装
     def generate_text(self, prompt: str, retries: int = 3, delay: float = 1.0) -> str:
         """
         非流式生成：直接获取完整响应
@@ -81,6 +86,9 @@ class LLMEngine:
                     **self.custom_params
                 )
 
+                # 访问 choices 前校验非空,避免 IndexError
+                if not response.choices:
+                    raise ValueError("LLM 返回空 choices")
                 full_text = response.choices[0].message.content
                 return full_text
 
@@ -89,6 +97,7 @@ class LLMEngine:
                 if attempt < retries - 1:
                     sleep_time = delay * (2 ** attempt) + random.random()
                     logging.warning("LLM 请求失败(可重试),第 %d 次: %s", attempt + 1, str(e))
+                    # 注意:time.sleep 为同步阻塞,异步上下文应通过 run_in_executor 包装
                     time.sleep(sleep_time)
                 else:
                     raise
@@ -131,6 +140,7 @@ class LLMEngine:
             # 递归调用，修复后的结果也可能包含 <result> 标签
             return self.save_load_json(res, depth=depth + 1, max_depth=max_depth)
 
+    # 注意:本方法为同步阻塞调用(含同步 OpenAI 客户端与 time.sleep),异步路由中应通过 run_in_executor 包装
     def generate_smart_text(self, prompt: str, retries: int = 3, delay: float = 1.0) -> str:
         """
         智能文本生成（流式）
@@ -166,6 +176,7 @@ class LLMEngine:
                 if attempt < retries - 1:
                     sleep_time = delay * (2 ** attempt) + random.random()
                     logging.warning("LLM 流式请求失败(可重试),第 %d 次: %s", attempt + 1, str(e))
+                    # 注意:time.sleep 为同步阻塞,异步上下文应通过 run_in_executor 包装
                     time.sleep(sleep_time)
                 else:
                     raise

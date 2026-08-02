@@ -136,7 +136,7 @@ class VolcanoVoiceCloneClient:
                 logging.info("声音复刻音频上传成功，speaker_id: %s", speaker_id)
                 return result
                 
-            except Exception as e:
+            except (ConnectionError, TimeoutError, OSError) as e:
                 if attempt < self.MAX_RETRIES - 1:
                     logging.warning("上传失败，第 %d 次重试: %s", attempt + 1, str(e))
                     time.sleep(self.RETRY_DELAY * (2 ** attempt))
@@ -174,7 +174,7 @@ class VolcanoVoiceCloneClient:
                 
                 return result
                 
-            except Exception as e:
+            except (ConnectionError, TimeoutError, OSError) as e:
                 if attempt < self.MAX_RETRIES - 1:
                     logging.warning("查询状态失败，第 %d 次重试: %s", attempt + 1, str(e))
                     time.sleep(self.RETRY_DELAY * (2 ** attempt))

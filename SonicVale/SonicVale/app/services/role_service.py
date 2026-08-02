@@ -1,4 +1,4 @@
-from sqlalchemy import Sequence
+from typing import Sequence
 
 from app.entity.role_entity import RoleEntity
 from app.models.po import RolePO

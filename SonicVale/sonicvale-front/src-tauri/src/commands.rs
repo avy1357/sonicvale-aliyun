@@ -16,22 +16,29 @@ pub struct VoiceFolderItem {
     pub reference_path: String,
 }
 
-/// 校验路径是否在用户主目录下,防止目录遍历
+/// 校验路径是否在允许的 SonicVale 目录下,防止目录遍历与越权访问
 fn validate_user_path(path: &PathBuf) -> Result<PathBuf, String> {
     let canonical = path
         .canonicalize()
         .map_err(|e| format!("路径不存在或无法访问: {e}"))?;
-    // 允许的根目录:用户主目录
+    // 允许的根目录:用户主目录下的 SonicVale 与 文档目录下的 SonicVale
     let home = dirs_next::home_dir()
         .ok_or_else(|| "无法获取用户主目录".to_string())?
         .canonicalize()
         .map_err(|e| format!("主目录规范化失败: {e}"))?;
-    if !canonical.starts_with(&home) {
-        return Err(format!(
-            "安全限制:仅允许访问用户主目录下的路径"
-        ));
+    let mut allowed_roots: Vec<PathBuf> = vec![home.join("SonicVale")];
+    // 文档目录下的 SonicVale(若存在,则纳入允许范围)
+    if let Some(doc) = dirs_next::document_dir() {
+        if let Ok(canon) = doc.join("SonicVale").canonicalize() {
+            allowed_roots.push(canon);
+        }
     }
-    Ok(canonical)
+    for root in &allowed_roots {
+        if canonical.starts_with(root) {
+            return Ok(canonical);
+        }
+    }
+    Err("安全限制:仅允许访问 SonicVale 相关目录".to_string())
 }
 
 /// 选择音色文件夹并扫描子目录结构

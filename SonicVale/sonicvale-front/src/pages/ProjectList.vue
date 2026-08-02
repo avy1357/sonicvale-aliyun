@@ -215,7 +215,7 @@ watch(
     () => form.value.llm_provider_id,
     (newVal) => {
         const provider = llmProviders.value.find(p => p.id === newVal)
-        availableModels.value = provider ? provider.model_list.split(',') : []
+        availableModels.value = provider ? (provider.model_list || '').split(',').filter(Boolean) : []
         form.value.llm_model = null // 重置模型选择
     }
 )

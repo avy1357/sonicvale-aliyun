@@ -39,7 +39,8 @@ class StrengthRepository:
         if not strength:
             return None
         for key, value in data.items():
-            if key in UPDATABLE_FIELDS and value is not None:
+            # 只过滤白名单字段,允许显式置 None
+            if key in UPDATABLE_FIELDS:
                 setattr(strength, key, value)
         self.db.commit()
         self.db.refresh(strength)

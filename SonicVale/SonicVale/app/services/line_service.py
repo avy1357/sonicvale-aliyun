@@ -7,10 +7,9 @@ import subprocess
 import sys
 import tempfile
 import threading
-from typing import List
+from typing import List, Sequence
 
 from openpyxl import Workbook
-from sqlalchemy import Sequence
 
 
 from app.core.audio_engin import AudioProcessor
@@ -130,29 +129,42 @@ class LineService:
 
     # 单个台词新增
     def add_new_line(self, line: LineCreateDTO,project_id,chapter_id,index,emotions_dict, strengths_dict,audio_path):
+        # 使用 flush 代替 commit,由 update_init_lines 统一 commit,保证批量新增的原子性
+        db = self.repository.db
     #     先判断角色是否存在
         role = self.role_repository.get_by_name(line.role_name,project_id)
         if role is None:
-            #         新增角色
-            role = self.role_repository.create(RolePO(name=line.role_name, project_id=project_id))
+            #         新增角色(flush 不 commit)
+            role = RolePO(name=line.role_name, project_id=project_id)
+            db.add(role)
+            db.flush()
         # 获取情绪id
         emotion_id = emotions_dict.get(line.emotion_name)
         # 获取强度id
         strength_id = strengths_dict.get(line.strength_name)
-        res = self.repository.create(LinePO(text_content=line.text_content, role_id=role.id,
-                                           chapter_id=chapter_id,line_order = index+1,emotion_id=emotion_id,strength_id=strength_id))
+        po = LinePO(text_content=line.text_content, role_id=role.id,
+                                           chapter_id=chapter_id,line_order = index+1,emotion_id=emotion_id,strength_id=strength_id)
+        db.add(po)
+        db.flush()
 
         # 新增台词,这里搞个audio_path
 
         # audio_path = os.path.join(getConfigPath(), str(project_id), str(chapter_id), "audio")
         # os.makedirs(audio_path, exist_ok=True)
-        res_path = os.path.join(audio_path, "id_"+str(res.id) + ".wav")
-        self.repository.update(res.id, {"audio_path": res_path})
+        res_path = os.path.join(audio_path, "id_"+str(po.id) + ".wav")
+        po.audio_path = res_path
 
 
     def update_init_lines(self, lines: list, project_id: object, chapter_id: object,emotions_dict, strengths_dict,audio_path) -> None:
-        for index, line in enumerate(lines):
-            self.add_new_line(line,project_id,chapter_id,index,emotions_dict, strengths_dict,audio_path)
+        # 循环内用 flush,循环结束后统一 commit,避免逐条 commit 的性能与原子性问题
+        db = self.repository.db
+        try:
+            for index, line in enumerate(lines):
+                self.add_new_line(line,project_id,chapter_id,index,emotions_dict, strengths_dict,audio_path)
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
 
     # 获取章节下所有台词
 
@@ -290,8 +302,8 @@ class LineService:
             self.repository.update(po.id, {"role_id": None})
 
     def batch_update_line_order(self,line_orders:List[LineOrderDTO]):
-        for line_order in line_orders:
-            self.update_line(line_order.id,{"line_order":line_order.line_order})
+        # 改用 repository 的批量更新方法,避免逐条 commit 的性能问题
+        self.repository.batch_update_line_order(line_orders)
         return True
 
     def update_audio_path(self, id, dto) -> bool:

@@ -1,5 +1,4 @@
 import re
-import json
 import difflib
 import logging
 from typing import List, Dict, Tuple, Optional
@@ -119,14 +118,14 @@ class TextCorrectorFinal:
                     sent = re.sub(r'\n+$', '', sent).strip()
 
                 # **关键：如果只有标点或引号，则直接跳过**
-                if sent and not re.fullmatch(r'^[\W_]+$', sent):
+                if sent and not re.fullmatch(r'^[\s\W]+$', sent):
                     result.append(sent)
 
                 current_sentence = ""
 
         # 末尾残余
         tail = current_sentence.strip()
-        if tail and not re.fullmatch(r'^[\W_]+$', tail):
+        if tail and not re.fullmatch(r'^[\s\W]+$', tail):
             result.append(tail)
 
         return result
@@ -297,48 +296,3 @@ class TextCorrectorFinal:
                 logging.warning("Item未匹配到原文，追加到末尾: %s", item.get('text_content', '')[:30])
 
         return final_data
-
-
-def read_files():
-    """读取原文和AI输出文件"""
-    try:
-        with open('原文3.txt', 'r', encoding='utf-8') as f:
-            original_text = f.read()
-        with open('AI输出的包含错误的文本3.json', 'r', encoding='utf-8') as f:
-            ai_data = json.load(f)
-        return original_text, ai_data
-    except FileNotFoundError as e:
-        logging.error("文件读取错误: %s", e)
-        return None, None
-    except json.JSONDecodeError as e:
-        logging.error("JSON解析错误: %s", e)
-        return None, None
-
-
-def save_corrected_data(corrected_data: List[Dict]):
-    """保存校正后的数据"""
-    try:
-        with open('校正后的文本_final.json', 'w', encoding='utf-8') as f:
-            json.dump(corrected_data, f, ensure_ascii=False, indent=4)
-        logging.info("校正结果已保存到: 校正后的文本_final.json")
-    except Exception as e:
-        logging.error("保存文件时出错: %s", e)
-
-
-def main():
-    original_text, ai_data = read_files()
-    if original_text is None or ai_data is None:
-        return
-
-    logging.info("文件读取成功！开始校正...")
-
-    corrector = TextCorrectorFinal()
-    corrected_data = corrector.correct_ai_text(original_text, ai_data)
-
-    save_corrected_data(corrected_data)
-
-    logging.info("校正完成！")
-
-
-if __name__ == "__main__":
-    main()

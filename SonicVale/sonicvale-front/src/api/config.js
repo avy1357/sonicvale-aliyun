@@ -2,7 +2,7 @@
 import axios from 'axios'
 
 const service = axios.create({
-  baseURL: 'http://127.0.0.1:8200/', // 统一前缀，根据你的后端改
+  baseURL: import.meta.env.VITE_API_BASE || 'http://127.0.0.1:8200/', // 统一前缀，支持环境变量覆盖
   timeout: 60000
 })
 

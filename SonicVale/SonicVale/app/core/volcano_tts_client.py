@@ -132,6 +132,8 @@ class VolcanoTTSClient:
         :param enable_language_detector: 是否开启自动语种识别
         :param disable_markdown_filter: 是否关闭 markdown 解析过滤
         :return: 音频二进制数据
+
+        注意:本方法含 run_forever 和 time.sleep 同步阻塞,异步路由中应通过 run_in_executor 包装。
         """
         target_speaker = speaker or self.speaker
         target_model = model or self.model
@@ -149,7 +151,8 @@ class VolcanoTTSClient:
                                           enable_timestamp, enable_subtitle, target_model,
                                           bit_rate, silence_duration,
                                           enable_language_detector, disable_markdown_filter)
-            except Exception as e:
+            except (ConnectionError, TimeoutError, OSError) as e:
+                # 仅对网络异常重试,其他异常直接向上抛出
                 self._close_ws()
                 if attempt < self.MAX_RETRIES - 1:
                     logging.warning("火山引擎 TTS 合成失败，第 %d 次重试: %s", attempt + 1, str(e))
@@ -240,6 +243,7 @@ class VolcanoTTSClient:
 
     def _handle_binary_frame(self, data: bytes):
         if len(data) < 4:
+            logging.warning("收到异常短帧,长度=%d", len(data))
             return
 
         protocol_version = (data[0] >> 4) & 0x0F
@@ -444,8 +448,8 @@ class VolcanoTTSClient:
         if self._ws:
             try:
                 self._ws.close()
-            except Exception:
-                pass
+            except Exception as e:
+                logging.debug("关闭 WebSocket 异常: %s", e)
             self._ws = None
 
     def test_connection(self) -> bool:

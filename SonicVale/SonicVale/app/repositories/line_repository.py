@@ -46,7 +46,8 @@ class LineRepository:
         if not line:
             return None
         for key, value in line_data.items():
-            if key in UPDATABLE_FIELDS and value is not None:  # 只更新白名单且不为空的字段
+            # 只过滤白名单字段,允许显式置 None(如 clear_role_id 清空 role_id)
+            if key in UPDATABLE_FIELDS:
                 setattr(line, key, value)
 
         self.db.commit()

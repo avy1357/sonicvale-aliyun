@@ -1,4 +1,4 @@
-from sqlalchemy import Sequence
+from typing import Sequence
 
 from app.entity.strength_entity import StrengthEntity
 from app.models.po import StrengthPO

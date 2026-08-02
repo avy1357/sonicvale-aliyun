@@ -1,7 +1,9 @@
 import os
+import logging
+import time
 from typing import Optional, Union
 
-from openai import OpenAI
+from openai import OpenAI, APIConnectionError, APITimeoutError
 
 from .ASRData import ASRDataSeg
 from .BaseASR import BaseASR
@@ -30,14 +32,31 @@ class WhisperASR(BaseASR):
         return f"{self.__class__.__name__}-{self.model}-{self.crc32_hex}"
 
     def _submit(self) -> dict:
-        completion = self.client.audio.transcriptions.create(
-            model=self.model,
-            temperature=0,
-            response_format="verbose_json",
-            file=("test.mp3", self.file_binary, "audio/mp3"),
-            prompt="",
-            language="zh"
-        )
-        return completion.to_dict()
+        # 从 audio_path 提取实际文件名,避免硬编码 "test.mp3"
+        if isinstance(self.audio_path, bytes):
+            audio_name = "audio.mp3"
+        else:
+            audio_name = os.path.basename(self.audio_path) or "audio.mp3"
+        # 捕获网络异常并重试 2 次
+        max_retries = 2
+        for attempt in range(max_retries + 1):
+            try:
+                completion = self.client.audio.transcriptions.create(
+                    model=self.model,
+                    temperature=0,
+                    response_format="verbose_json",
+                    file=(audio_name, self.file_binary, "audio/mp3"),
+                    prompt="",
+                    language="zh"
+                )
+                return completion.to_dict()
+            except (APIConnectionError, APITimeoutError, OSError) as e:
+                if attempt < max_retries:
+                    logging.warning("Whisper ASR 提交失败,第 %d 次重试: %s", attempt + 1, e)
+                    time.sleep(1)
+                else:
+                    raise
+        # 理论上不会到达此处
+        raise RuntimeError("Whisper ASR 提交失败")
 
 

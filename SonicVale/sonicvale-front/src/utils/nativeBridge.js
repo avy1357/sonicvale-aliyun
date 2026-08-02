@@ -5,7 +5,7 @@
 
 import { invoke, convertFileSrc } from '@tauri-apps/api/core'
 import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog'
-import { writeFile as fsWriteFile, copyFile as fsCopyFile } from '@tauri-apps/plugin-fs'
+import { writeFile as fsWriteFile, copyFile as fsCopyFile, readFile as fsReadFile } from '@tauri-apps/plugin-fs'
 import { open as shellOpen } from '@tauri-apps/plugin-shell'
 import { homeDir } from '@tauri-apps/api/path'
 
@@ -148,6 +148,21 @@ async function copyFile(sourcePath, destPath) {
 }
 
 /**
+ * 读取文件内容为 Uint8Array(用于文本导入等场景)
+ * @param {string} filePath - 文件绝对路径(需在 fs scope 允许范围内)
+ * @returns {Promise<Uint8Array|null>} 文件字节,失败时为 null
+ */
+async function readTextFile(filePath) {
+  if (!isTauri) return null
+  try {
+    return await fsReadFile(filePath)
+  } catch (e) {
+    console.error('[nativeBridge] readTextFile:', e)
+    return null
+  }
+}
+
+/**
  * 用系统资源管理器打开文件夹
  * @param {string} folderPath
  * @returns {Promise<boolean>}
@@ -155,9 +170,22 @@ async function copyFile(sourcePath, destPath) {
 async function openFolder(folderPath) {
   if (!isTauri) return false
   if (!folderPath) return false
-  // 路径白名单校验: 只允许打开 SonicVale 相关目录
-  const normalizedPath = folderPath.replace(/\\/g, '/').toLowerCase()
-  if (!normalizedPath.includes('sonicvale') && !normalizedPath.includes('documents')) {
+  // 路径白名单校验:规范化后禁止目录遍历,且必须是合法盘符路径
+  const normalized = folderPath.replace(/\\/g, '/')
+  // 禁止目录遍历符号,避免 ../ 绕过
+  if (normalized.includes('..')) {
+    console.warn('不允许的路径(含目录遍历):', folderPath)
+    return false
+  }
+  // 校验路径格式:盘符开头,且不含非法字符
+  if (!/^[A-Za-z]:[\\/][^<>:"|?*]+$/.test(folderPath)) {
+    console.warn('路径格式不合法:', folderPath)
+    return false
+  }
+  // 仅允许打开 SonicVale / Documents 相关目录(按路径段匹配,避免子串绕过)
+  const segments = normalized.toLowerCase().split('/')
+  const allowed = segments.some(seg => seg === 'sonicvale' || seg === 'documents')
+  if (!allowed) {
     console.warn('不允许打开此目录:', folderPath)
     return false
   }
@@ -233,6 +261,7 @@ window.native = {
   saveFile,
   writeFile,
   copyFile,
+  readTextFile,
   openFolder,
   pathToFileUrl,
   getUserHome,
@@ -247,6 +276,7 @@ export {
   saveFile,
   writeFile,
   copyFile,
+  readTextFile,
   openFolder,
   pathToFileUrl,
   getUserHome,

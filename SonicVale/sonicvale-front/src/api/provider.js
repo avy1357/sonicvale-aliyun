@@ -4,11 +4,37 @@ import request from './config'
  * LLM Providers
  */
 
-// 获取 LLM 提供商列表
+// 敏感字段列表(脱敏用)
+const SENSITIVE_KEYS = ['api_key', 'x_api_key', 'access_key_id', 'access_key_secret']
+
+// 将敏感字符串脱敏为掩码,如 sk-***1234
+function maskSecret(val) {
+  if (val == null) return val
+  const s = String(val)
+  if (s.length <= 8) return '***'
+  return s.slice(0, 3) + '***' + s.slice(-4)
+}
+
+// 对 provider 列表中的敏感字段做脱敏(仅列表展示用,编辑时需单独请求完整数据)
+function maskProviderSecrets(list) {
+  if (!Array.isArray(list)) return list
+  return list.map(item => {
+    if (!item || typeof item !== 'object') return item
+    const masked = { ...item }
+    SENSITIVE_KEYS.forEach(k => {
+      if (masked[k] != null && masked[k] !== '') {
+        masked[k] = maskSecret(masked[k])
+      }
+    })
+    return masked
+  })
+}
+
+// 获取 LLM 提供商列表(敏感字段已脱敏)
 export function fetchLLMProviders() {
   return request.get('/llm_providers/').then(res => {
     if (res.code === 200) {
-      return res.data
+      return maskProviderSecrets(res.data)
     }
     return []
   })
@@ -38,13 +64,13 @@ export function testLLMProvider(data) {
  * TTS Provider
  */
 
-// 获取 TTS 提供商列表
+// 获取 TTS 提供商列表(敏感字段已脱敏)
 export function fetchTTSProviders() {
   return request.get('/tts_providers').then(res => {
     if (res.code === 200) {
-      return res.data
+      return maskProviderSecrets(res.data)
     }
-    
+
     // 如果后端暂时没实现接口，就返回默认值，以避免前端报错
   })
 }

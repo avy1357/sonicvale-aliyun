@@ -1,6 +1,7 @@
 import requests
 import logging
-from sqlalchemy import Sequence, select, func
+from sqlalchemy import select, func
+from typing import Sequence
 
 from app.entity.tts_provider_entity import TTSProviderEntity
 from app.models.po import TTSProviderPO, ProjectPO, VoicePO

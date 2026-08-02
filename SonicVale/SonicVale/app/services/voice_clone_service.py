@@ -126,7 +126,13 @@ class VoiceCloneService:
         return result
 
     def train_and_wait(self, dto: VoiceCloneTrainDTO) -> dict:
-        """上传音频并等待训练完成"""
+        """上传音频并等待训练完成
+
+        优化:wait_for_training 期间不持有 DB session,状态更新用独立短 session,
+        避免长时间占用主 session 导致连接池耗尽
+        """
+        from app.db.database import SessionLocal
+
         self.upload_and_train(VoiceCloneUploadDTO(
             clone_id=dto.clone_id,
             reference_path=dto.reference_path,
@@ -137,22 +143,41 @@ class VoiceCloneService:
             enable_crop_by_asr=dto.enable_crop_by_asr,
         ))
 
-        # upload_and_train 已校验 x_api_key,此处直接复用 _get_volcano_client
+        # 获取 clone,读取需要的字段后脱离 session,释放连接
+        db = self.repository.db
         clone = self.repository.get_by_id(dto.clone_id)
+        if not clone:
+            raise ValueError(f"声音复刻记录不存在，ID: {dto.clone_id}")
+        # 读取需要的字段到局部变量,避免 wait_for_training 期间访问 persistent 对象
+        speaker_id = clone.speaker_id
+        # 脱离 session,释放连接(属性仍可访问)
+        db.expunge(clone)
+
+        # upload_and_train 已校验 x_api_key,此处直接复用 _get_volcano_client
         client = self._get_volcano_client(clone)
 
+        # wait_for_training 期间不持有 session(长等待)
         result = client.wait_for_training(
-            clone.speaker_id,
+            speaker_id,
             max_wait_seconds=dto.max_wait_seconds,
             poll_interval=dto.poll_interval,
         )
 
         status = result.get("status", 0)
-        self.repository.update(dto.clone_id, {
-            "status": status,
-            "version": result.get("version"),
-            "demo_audio_url": result.get("demo_audio"),
-        })
+        # 用独立短 session 更新状态,避免长时间占用主 session
+        short_db = SessionLocal()
+        try:
+            po = short_db.get(VoiceClonePO, dto.clone_id)
+            if po:
+                po.status = status
+                po.version = result.get("version")
+                po.demo_audio_url = result.get("demo_audio")
+                short_db.commit()
+        except Exception:
+            short_db.rollback()
+            raise
+        finally:
+            short_db.close()
 
         return result
 

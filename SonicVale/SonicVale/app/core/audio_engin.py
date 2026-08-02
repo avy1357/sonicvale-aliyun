@@ -2,6 +2,8 @@ import os
 import contextlib
 import subprocess
 import tempfile
+import shutil
+import logging
 import soundfile as sf
 import numpy as np
 
@@ -25,17 +27,24 @@ class AudioProcessor:
 
     def _create_tmp_file(self):
         os.makedirs(os.path.dirname(self.audio_path) or ".", exist_ok=True)
-        # 仅生成路径,不创建空文件(由 ffmpeg 创建),减少无用文件残留
+        # 创建临时文件(mkstemp 会创建空文件,后续由 ffmpeg 覆盖写入),减少无用文件残留
         fd, path = tempfile.mkstemp(suffix=".wav",
                                      dir=os.path.dirname(self.audio_path) or ".")
         os.close(fd)  # 立即关闭 fd,仅保留路径
         return path
 
     def _run_ffmpeg(self, cmd):
-        subprocess.run(
-            cmd, check=True,
-            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
-        )
+        # 捕获 ffmpeg 输出,失败时记录 stderr 便于排查
+        try:
+            subprocess.run(
+                cmd, check=True,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+            )
+        except subprocess.CalledProcessError as e:
+            stderr_text = e.stderr.decode("utf-8", errors="replace") if e.stderr else ""
+            logging.error("ffmpeg 执行失败(返回码 %s): %s", e.returncode, stderr_text)
+            raise
 
     def _process_and_replace(self, cmd):
         """执行 ffmpeg 命令并将结果替换到 audio_path,失败时清理临时文件"""
@@ -183,5 +192,9 @@ class AudioProcessor:
     def export(self, out_path: str):
         """导出音频到目标路径（带软限幅）"""
         self._normalize(self.audio_path)
-        os.replace(self.audio_path, out_path)
+        # 优先用 os.replace(原子操作);跨文件系统时回退到 shutil.move
+        try:
+            os.replace(self.audio_path, out_path)
+        except OSError:
+            shutil.move(self.audio_path, out_path)
         return out_path

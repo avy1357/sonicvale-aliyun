@@ -399,7 +399,9 @@ watch(() => llmDialogVisible.value, (val) => {
 })
 
 // 监听 currentModelList 变化，同步回 llmForm.model_list
+let isUpdatingModelList = false // 防止 watch 递归触发
 watch(currentModelList, (val) => {
+  if (isUpdatingModelList) return
   // 如果输入包含逗号，自动分割
   let hasSplit = false
   const processedList = []
@@ -416,7 +418,9 @@ watch(currentModelList, (val) => {
 
   if (hasSplit) {
     // 去重并更新 currentModelList
+    isUpdatingModelList = true
     currentModelList.value = [...new Set(processedList)]
+    isUpdatingModelList = false
     return
   }
 

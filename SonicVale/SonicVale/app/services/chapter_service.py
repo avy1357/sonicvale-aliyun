@@ -5,9 +5,7 @@ import re
 import shutil
 import threading
 from collections import defaultdict
-from typing import List
-
-from sqlalchemy import Sequence
+from typing import List, Sequence
 
 from app.core.config import getConfigPath
 from app.core.text_correct_engine import TextCorrectorFinal
@@ -142,14 +140,23 @@ class ChapterService:
         except Exception as e:
             logging.exception("校验章节路径失败: %s", e)
 
-        # 2. DB 操作:统一事务
+        # 2. DB 操作:统一事务(原子化)
+        #    不调用 repository 的 delete 方法(其内部会 commit),改为直接用 db 操作,
+        #    确保 lines 和 chapter 在同一事务中提交,失败一起回滚
         #    LinePO.chapter_id ondelete=CASCADE,删除 chapter 时 lines 会被自动级联删除
         #    这里显式删除一次,兼容未启用外键约束的旧库
         try:
             db = self.repository.db
             line_repository = LineRepository(db)
-            line_repository.delete_all_by_chapter_id(chapter_id)
-            res = self.repository.delete(chapter_id)
+            # 先删除 lines(不单独 commit)
+            lines = line_repository.get_all(chapter_id)
+            for line in lines:
+                db.delete(line)
+            # 再删除 chapter(不单独 commit)
+            db.delete(chapter)
+            # 统一 commit,保证原子性
+            db.commit()
+            res = True
         except Exception as e:
             logging.exception("删除章节 DB 操作失败: %s", e)
             try:
@@ -220,8 +227,9 @@ class ChapterService:
         return result
 
     def para_content(self, prompt:str,chapter_id: int,content: str = None,role_names: List[str] = None,emotion_names: List[str] = None,strength_names: List[str] = None,is_precise_fill: int = 0):
-        db = SessionLocal()
-        try :
+        # 复用注入 repository 的 db session,避免独立 session 导致的事务不一致
+        db = self.repository.db
+        try:
     #         获取content
             chapter = self.repository.get_by_id(chapter_id)
             if chapter is None:
@@ -345,7 +353,8 @@ class ChapterService:
                     "message": "LLM 服务暂不可用, 请稍后重试"
                 }
         finally:
-            db.close()
+            # 不关闭注入的 session,由上层依赖注入管理生命周期
+            pass
 
 
     # 导出指令
@@ -369,7 +378,8 @@ class ChapterService:
     #         db.close()
     def add_smart_role_and_voice(self,project,content, role_names, voice_names):
         # 智能匹配提示词，要写死吗？
-        db = SessionLocal()
+        # 复用注入 repository 的 db session,避免独立 session 导致的事务不一致
+        db = self.repository.db
         try:
             llm_provider_id = project.llm_provider_id
             llm_provider_repository = LLMProviderRepository(db)
@@ -401,7 +411,8 @@ class ChapterService:
             logging.exception("LLM智能匹配出错: %s", e)
             return False, []
         finally:
-            db.close()
+            # 不关闭注入的 session,由上层依赖注入管理生命周期
+            pass
 
 
 

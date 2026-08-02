@@ -46,9 +46,9 @@ class AliyunVoiceManagerClient:
         :param api_key: DashScope API Key
         """
         self.api_key = api_key
-        # 注意：dashscope.api_key 在每次调用时通过锁保护设置，避免并发竞态
+        # 注意：dashscope.api_key 不在 __init__ 中全局设置,避免多客户端并发时互相覆盖。
+        # 每次方法调用时通过锁保护设置,保证使用各自的 api_key。
         with _dashscope_lock:
-            dashscope.api_key = api_key
             dashscope.base_http_api_url = self.BASE_URL_CN
             self.service = VoiceEnrollmentService()
         logging.info("阿里云音色管理客户端初始化成功")
@@ -80,7 +80,7 @@ class AliyunVoiceManagerClient:
                     total += 1
 
                 return {"voices": voices, "page_count": count, "total": total}
-            except Exception as e:
+            except (ConnectionError, TimeoutError, OSError) as e:
                 if attempt < self.MAX_RETRIES - 1:
                     logging.warning("查询音色列表失败，第 %d 次重试: %s", attempt + 1, str(e))
                     time.sleep(self.RETRY_DELAY * (2 ** attempt))
@@ -101,7 +101,7 @@ class AliyunVoiceManagerClient:
                     dashscope.api_key = self.api_key
                     details = self.service.query_voice(voice_id=voice_id)
                 return details
-            except Exception as e:
+            except (ConnectionError, TimeoutError, OSError) as e:
                 if attempt < self.MAX_RETRIES - 1:
                     logging.warning("查询音色详情失败，第 %d 次重试: %s", attempt + 1, str(e))
                     time.sleep(self.RETRY_DELAY * (2 ** attempt))
@@ -159,7 +159,7 @@ class AliyunVoiceManagerClient:
                     )
                 logging.info("阿里云音色创建成功，voice_id: %s", voice_id)
                 return voice_id
-            except Exception as e:
+            except (ConnectionError, TimeoutError, OSError) as e:
                 if attempt < self.MAX_RETRIES - 1:
                     logging.warning("创建音色失败，第 %d 次重试: %s", attempt + 1, str(e))
                     time.sleep(self.RETRY_DELAY * (2 ** attempt))
@@ -194,7 +194,7 @@ class AliyunVoiceManagerClient:
                     )
                 logging.info("阿里云音色更新成功，voice_id: %s", voice_id)
                 return True
-            except Exception as e:
+            except (ConnectionError, TimeoutError, OSError) as e:
                 if attempt < self.MAX_RETRIES - 1:
                     logging.warning("更新音色失败，第 %d 次重试: %s", attempt + 1, str(e))
                     time.sleep(self.RETRY_DELAY * (2 ** attempt))
@@ -216,7 +216,7 @@ class AliyunVoiceManagerClient:
                     self.service.delete_voice(voice_id=voice_id)
                 logging.info("阿里云音色删除成功，voice_id: %s", voice_id)
                 return True
-            except Exception as e:
+            except (ConnectionError, TimeoutError, OSError) as e:
                 if attempt < self.MAX_RETRIES - 1:
                     logging.warning("删除音色失败，第 %d 次重试: %s", attempt + 1, str(e))
                     time.sleep(self.RETRY_DELAY * (2 ** attempt))

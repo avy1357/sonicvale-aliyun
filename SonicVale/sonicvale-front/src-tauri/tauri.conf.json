@@ -72,7 +72,7 @@
           "cmd": "explorer.exe",
           "args": [
             {
-              "validator": "^.+$"
+              "validator": "^[A-Za-z]:[\\\\/].*(SonicVale|Documents|sonicvale|documents).*"
             }
           ]
         }

@@ -80,7 +80,8 @@ class AliyunTTSClient:
                 return self._do_synthesize(text, target_voice, audio_format, target_sample_rate,
                                            instruction=instruction, volume=volume,
                                            speech_rate=speech_rate, pitch_rate=pitch_rate)
-            except Exception as e:
+            except (ConnectionError, TimeoutError, OSError) as e:
+                # 仅对网络异常重试,其他异常直接向上抛出
                 if attempt < self.MAX_RETRIES - 1:
                     logging.warning("阿里云 CosyVoice 合成失败，第 %d 次重试: %s",
                                     attempt + 1, str(e))

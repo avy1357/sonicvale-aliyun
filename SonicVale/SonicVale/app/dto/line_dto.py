@@ -35,11 +35,7 @@ class LineCreateDTO(BaseModel):
     emotion_id: Optional[int] = None
     strength_id: Optional[int] = None
     instruction: Optional[str] = None  # 语音风格指令（覆盖角色默认）
-
-    audio_path : Optional[str] = None
-    status : Optional[str] = None
-    is_done : Optional[int] = 0
-    subtitle_path : Optional[str] = None
+    # 安全:创建 DTO 不暴露 status/is_done/audio_path/subtitle_path,这些应由系统内部管理
 
 class LineResponseDTO(BaseModel):
     chapter_id: int
