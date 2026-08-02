@@ -156,7 +156,7 @@ class VolcanoTTSClient:
                     time.sleep(self.RETRY_DELAY * (2 ** attempt))
                 else:
                     logging.exception("火山引擎 TTS 合成失败，已达到最大重试次数")
-                    raise Exception(f"火山引擎 TTS 合成失败: {str(e)}")
+                    raise Exception(f"火山引擎 TTS 合成失败: {str(e)}") from e
 
         raise Exception("火山引擎 TTS 合成失败")
 
@@ -192,7 +192,7 @@ class VolcanoTTSClient:
             on_open=self._on_open,
         )
 
-        self._ws.run_forever()
+        self._ws.run_forever(ping_timeout=30, ping_interval=10)
 
         if self._error:
             raise Exception(f"火山引擎 TTS WebSocket 错误: {self._error}")

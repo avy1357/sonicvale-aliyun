@@ -5,13 +5,18 @@ from sqlalchemy.orm import Session
 
 from app.models.po import ChapterPO
 
+# 允许通过 update 更新的字段白名单,防止主键 id、created_at、updated_at 等被覆盖
+UPDATABLE_FIELDS = (
+    "title", "text_content", "project_id", "order_index",
+)
+
 
 class ChapterRepository:
     def __init__(self, db: Session):
         self.db = db
 
     def get_by_id(self, chapter_id: int) -> Optional[ChapterPO]:
-        """根据 ID 查询项目"""
+        """根据 ID 查询章节"""
         return self.db.get(ChapterPO, chapter_id)
 
     def get_all(self, project_id: int) -> Sequence[ChapterPO]:
@@ -20,19 +25,19 @@ class ChapterRepository:
         return self.db.execute(stmt).scalars().all()
 
     def create(self, chapter_data: ChapterPO) -> ChapterPO:
-        """新建项目"""
+        """新建章节"""
         self.db.add(chapter_data)
         self.db.commit()
         self.db.refresh(chapter_data)
         return chapter_data
 
     def update(self, chapter_id: int, chapter_data: dict) -> Optional[ChapterPO]:
-        """更新项目"""
+        """更新章节"""
         chapter = self.get_by_id(chapter_id)
         if not chapter:
             return None
         for key, value in chapter_data.items():
-            if value is not None:  # 只更新不为空的字段
+            if key in UPDATABLE_FIELDS and value is not None:  # 只更新白名单且不为空的字段
                 setattr(chapter, key, value)
 
         self.db.commit()
@@ -41,10 +46,10 @@ class ChapterRepository:
 
     def delete(self, chapter_id: int) -> bool:
         """删除章节"""
-        project = self.get_by_id(chapter_id)
-        if not project:
+        chapter = self.get_by_id(chapter_id)
+        if not chapter:
             return False
-        self.db.delete(project)
+        self.db.delete(chapter)
         self.db.commit()
         return True
     # def delete_all_by_project_id(self, project_id: int) -> bool:

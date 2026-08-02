@@ -92,7 +92,7 @@ def get_all_projects(service: ProjectService = Depends(get_service)):
 
 
 # ------------------- 修改项目 -------------------
-@router.put("/{project_id}", response_model=Res[ProjectCreateDTO],
+@router.put("/{project_id}", response_model=Res[ProjectResponseDTO],
             summary="修改项目",
             description="根据项目ID修改项目信息")
 def update_project(project_id: int, dto: ProjectCreateDTO, service: ProjectService = Depends(get_service)):
@@ -104,7 +104,8 @@ def update_project(project_id: int, dto: ProjectCreateDTO, service: ProjectServi
 
     success = service.update_project(project_id,dto.dict())
     if success:
-        return Res(data=dto, code=200, message="更新成功")
+        updated_project = service.get_project(project_id)
+        return Res(data=ProjectResponseDTO(**updated_project.__dict__), code=200, message="更新成功")
     else:
         return Res(data=None, code=400, message="更新失败")
 

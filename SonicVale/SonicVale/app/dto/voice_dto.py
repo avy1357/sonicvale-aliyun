@@ -48,8 +48,8 @@ class VoiceImportResultDTO(BaseModel):
 class VoiceAudioProcessDTO(BaseModel):
     """音色参考音频处理DTO"""
     audio_path: str
-    speed: Optional[float] = 1.0
-    volume: Optional[float] = 1.0
+    speed: Optional[float] = Field(default=1.0, ge=0.5, le=2.0)
+    volume: Optional[float] = Field(default=1.0, ge=0, le=2.0)
     start_ms: Optional[int] = None
     end_ms: Optional[int] = None
     silence_sec: Optional[float] = 0.0

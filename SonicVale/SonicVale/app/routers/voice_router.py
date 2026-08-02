@@ -173,7 +173,7 @@ def get_voice(voice_id: int, voice_service: VoiceService = Depends(get_voice_ser
         res = VoiceResponseDTO(**entity.__dict__)
         return Res(data=res, code=200, message="查询成功")
     else:
-        return Res(data=None, code=404, message="项目不存在")
+        return Res(data=None, code=404, message="音色不存在")
 
 
 # 修改，传入的参数是id

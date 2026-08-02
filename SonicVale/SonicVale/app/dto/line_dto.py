@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 
 class LineInitDTO(BaseModel):
@@ -15,9 +15,9 @@ class LineOrderDTO(BaseModel):
     line_order: int
 class LineAudioProcessDTO(BaseModel):
     # 默认是1
-    speed: Optional[float] = 1.0
+    speed: Optional[float] = Field(default=1.0, ge=0.5, le=2.0)
     # 默认是1
-    volume: Optional[float] = 1.0
+    volume: Optional[float] = Field(default=1.0, ge=0, le=2.0)
     start_ms: Optional[int] = None
     end_ms: Optional[int] = None
 #     静止时间

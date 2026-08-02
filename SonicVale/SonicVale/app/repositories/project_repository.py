@@ -1,7 +1,13 @@
-from typing import List, Optional, Sequence, Any
+from typing import Optional, Sequence
 from sqlalchemy.orm import Session
-from sqlalchemy import select, Row, RowMapping
+from sqlalchemy import select
 from app.models.po import ProjectPO
+
+# 允许通过 update 更新的字段白名单,防止主键 id、created_at、updated_at 等被覆盖
+UPDATABLE_FIELDS = (
+    "name", "description", "llm_provider_id", "llm_model",
+    "tts_provider_id", "prompt_id", "is_precise_fill", "project_root_path",
+)
 
 
 class ProjectRepository:
@@ -29,7 +35,8 @@ class ProjectRepository:
         if not project:
             return None
         for key, value in project_data.items():
-            setattr(project, key, value)
+            if key in UPDATABLE_FIELDS and value is not None:
+                setattr(project, key, value)
         self.db.commit()
         self.db.refresh(project)
         return project

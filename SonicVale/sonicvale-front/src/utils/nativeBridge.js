@@ -155,6 +155,12 @@ async function copyFile(sourcePath, destPath) {
 async function openFolder(folderPath) {
   if (!isTauri) return false
   if (!folderPath) return false
+  // 路径白名单校验: 只允许打开 SonicVale 相关目录
+  const normalizedPath = folderPath.replace(/\\/g, '/').toLowerCase()
+  if (!normalizedPath.includes('sonicvale') && !normalizedPath.includes('documents')) {
+    console.warn('不允许打开此目录:', folderPath)
+    return false
+  }
   try {
     await shellOpen(folderPath)
     return true

@@ -59,13 +59,17 @@ class RoleService:
         - 检查同名冲突
         - 检查project_id不能改变
         """
-        name = data["name"]
-        project_id = data["project_id"]
-        if self.repository.get_by_name(name, project_id) and self.repository.get_by_name(name,project_id).id != role_id:
-            return False
+        name = data.get("name")
+        project_id = data.get("project_id")
+        if name and project_id is not None:
+            existing = self.repository.get_by_name(name, project_id)
+            if existing and existing.id != role_id:
+                return False
         po = self.repository.get_by_id(role_id)
+        if po is None:
+            return False
         # 防止改变project_id
-        if po.project_id != project_id:
+        if project_id is not None and po.project_id != project_id:
             return False
         self.repository.update(role_id, data)
         return True

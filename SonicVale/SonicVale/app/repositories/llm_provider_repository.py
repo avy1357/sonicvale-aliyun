@@ -1,12 +1,17 @@
-from typing import List, Optional, Sequence, Any
+from typing import List, Optional, Sequence
 from sqlalchemy.orm import Session
-from sqlalchemy import select, Row, RowMapping
+from sqlalchemy import select
 from app.models.po import LLMProviderPO
 from app.core.crypto import (
     LLM_PROVIDER_SECRET_FIELDS,
     encrypt_provider_fields,
     decrypt_provider_fields,
     encrypt_provider_dict,
+)
+
+# 允许通过 update 更新的字段白名单,防止主键 id、created_at、updated_at 等被覆盖
+UPDATABLE_FIELDS = (
+    "name", "api_base_url", "api_key", "model_list", "status", "custom_params",
 )
 
 
@@ -45,7 +50,7 @@ class LLMProviderRepository:
         # 对 dict 中的敏感字段加密(只加密存在的字段)
         encrypt_provider_dict(llm_provider_data, LLM_PROVIDER_SECRET_FIELDS)
         for key, value in llm_provider_data.items():
-            if value is not None:  # 只更新不为空的字段
+            if key in UPDATABLE_FIELDS and value is not None:  # 只更新白名单且不为空的字段
                 setattr(llm_provider, key, value)
         self.db.commit()
         self.db.refresh(llm_provider)

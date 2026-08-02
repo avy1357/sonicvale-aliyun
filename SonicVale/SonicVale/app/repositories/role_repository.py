@@ -1,9 +1,14 @@
-from typing import Optional
+from typing import Optional, Sequence
 
-from sqlalchemy import Sequence, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.po import RolePO
+
+# 允许通过 update 更新的字段白名单,防止主键 id、created_at、updated_at 等被覆盖
+UPDATABLE_FIELDS = (
+    "name", "project_id", "default_voice_id", "instruction",
+)
 
 
 class RoleRepository:
@@ -33,7 +38,7 @@ class RoleRepository:
         if not role:
             return None
         for key, value in role_data.items():
-            if value is not None:  # 只更新不为空的字段
+            if key in UPDATABLE_FIELDS and value is not None:  # 只更新白名单且不为空的字段
                 setattr(role, key, value)
 
         self.db.commit()
@@ -41,7 +46,7 @@ class RoleRepository:
         return role
 
     def delete(self, role_id: int) -> bool:
-        """删除项目"""
+        """删除角色"""
         role = self.get_by_id(role_id)
         if not role:
             return False

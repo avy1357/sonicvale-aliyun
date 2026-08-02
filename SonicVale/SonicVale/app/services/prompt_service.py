@@ -1,11 +1,10 @@
-from numba.scripts.generate_lower_listing import description
-from sqlalchemy import Sequence
+from sqlalchemy import Sequence, select, func
 
 from app.core.enums import TaskEnum
 from app.core.llm_engine import LLMEngine
 from app.core.prompts import get_prompt_str
 from app.entity.prompt_entity import PromptEntity
-from app.models.po import PromptPO
+from app.models.po import PromptPO, ProjectPO
 
 from app.repositories.prompt_repository import PromptRepository
 
@@ -94,14 +93,21 @@ class PromptService:
         - 可以只更新部分字段
         - 检查同名冲突
         """
-        name = data["name"]
-        task = data.get("task")
-        if self.repository.get_by_name(name) and self.repository.get_by_name(name).id != prompt_id:
-            return False
+        name = data.get("name")
+        if name:
+            existing = self.repository.get_by_name(name)
+            if existing and existing.id != prompt_id:
+                return False
         # 如果改的是content
-
-        if TaskEnum(task) == TaskEnum.DUBBING:
-            if not self.validate_prompt_with_DUBBING(content=data['content']):
+        task = data.get("task")
+        if task:
+            try:
+                task = TaskEnum(task)
+            except ValueError:
+                return False
+        if task == TaskEnum.DUBBING:
+            content = data.get("content")
+            if not self.validate_prompt_with_DUBBING(content=content):
                 return False
 
         self.repository.update(prompt_id, data)
@@ -109,9 +115,17 @@ class PromptService:
 
     def delete_prompt(self, prompt_id: int) -> bool:
         """删除提示词
-        - 可以添加业务校验，例如提示词下有章节是否允许删除
-        - 后续需要级联删除所有章节内容
+        - 删除前检查是否被 project 引用,被引用则禁止删除
         """
+        db = self.repository.db
+        # 检查是否有 project 引用了该提示词
+        count = db.execute(
+            select(func.count()).select_from(ProjectPO).where(
+                ProjectPO.prompt_id == prompt_id
+            )
+        ).scalar_one()
+        if count and count > 0:
+            return False
         res = self.repository.delete(prompt_id)
         return res
     # 根据task 获取提示词列表

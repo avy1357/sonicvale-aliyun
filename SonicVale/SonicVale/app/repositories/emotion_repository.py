@@ -4,6 +4,11 @@ from sqlalchemy.orm import Session
 
 from app.models.po import EmotionPO
 
+# 允许通过 update 更新的字段白名单,防止主键 id、is_active、created_at、updated_at 等被覆盖
+UPDATABLE_FIELDS = (
+    "name", "description",
+)
+
 
 class EmotionRepository:
     def __init__(self, db: Session):
@@ -17,7 +22,7 @@ class EmotionRepository:
         """通过名称获取情绪"""
         return self.db.query(EmotionPO).filter(EmotionPO.name == name).first()
 
-    def get_all(self) -> list[type[EmotionPO]]:
+    def get_all(self) -> Sequence[EmotionPO]:
         """获取所有情绪"""
         return self.db.query(EmotionPO).all()
 
@@ -35,7 +40,7 @@ class EmotionRepository:
         if not emotion:
             return None
         for key, value in data.items():
-            if value is not None:
+            if key in UPDATABLE_FIELDS and value is not None:
                 setattr(emotion, key, value)
         self.db.commit()
         self.db.refresh(emotion)

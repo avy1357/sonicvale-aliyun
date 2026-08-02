@@ -89,7 +89,7 @@ class TTSEngine:
         resp.raise_for_status()
         return resp.json().get("exists", False)
 
-    def upload_audio(self, file_path: str,full_path=None) -> dict:
+    def upload_audio(self, file_path: str, full_path=None) -> dict:
         """
                 调用 /v1/upload_audio 上传音频
                 :param file_path: 本地音频文件路径
@@ -117,23 +117,3 @@ class TTSEngine:
             return {"code": 500, "msg": f"请求失败: {str(e)}"}
         except Exception as e:
             return {"code": 500, "msg": f"上传异常: {str(e)}"}
-if __name__ == "__main__":
-    # 示例使用
-    engine = TTSEngine("https://eihh5fmon4-8200.cnb.run/")
-
-    # 1. 上传音频
-    upload_res = engine.upload_audio("C:\\Users\\lxc18\\Music\\多情绪\\吴泽\\解说\\中等.wav",full_path="C:\\Users\\lxc18\\Music\\多情绪\\吴泽\\解说\\中等.wav")
-    # print("上传结果:", upload_res)
-
-    # 2. 检查音频是否存在
-    exists = engine.check_audio_exists("C:\\Users\\lxc18\\Music\\多情绪\\吴泽\\解说\\中等.wav")
-    logging.info("音频存在: %s", exists)
-
-    # 3. 获取模型列表
-    models = engine.get_models()
-    logging.info("模型信息: %s", models)
-
-    # 4. 合成语音
-    if exists:
-        audio = engine.synthesize("萧炎，斗之力，三段！级别：低级！", "C:\\Users\\lxc18\\Music\\多情绪\\吴泽\\解说\\中等.wav",emo_text="愤怒", save_path="output.wav")
-        logging.info("语音已保存到 output.wav, 大小 %s 字节", len(audio))

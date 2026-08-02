@@ -9,8 +9,8 @@ class VoiceCloneCreateDTO(BaseModel):
     name: str
     speaker_id: str
     reference_path: Optional[str] = None
-    model_type: int = Field(default=1, description="模型类型: 1=ICL1.0, 2=DiT标准, 3=DiT还原, 4=ICL2.0")
-    language: int = Field(default=0, description="语种: 0=中文, 1=英文, 2=日语")
+    model_type: int = Field(default=1, ge=1, le=4, description="模型类型: 1=ICL1.0, 2=DiT标准, 3=DiT还原, 4=ICL2.0")
+    language: int = Field(default=0, ge=0, le=2, description="语种: 0=中文, 1=英文, 2=日语")
     description: Optional[str] = None
 
 

@@ -4,6 +4,11 @@ from sqlalchemy.orm import Session
 
 from app.models.po import StrengthPO
 
+# 允许通过 update 更新的字段白名单,防止主键 id、is_active、created_at、updated_at 等被覆盖
+UPDATABLE_FIELDS = (
+    "name", "description",
+)
+
 
 class StrengthRepository:
     def __init__(self, db: Session):
@@ -17,7 +22,7 @@ class StrengthRepository:
         """通过名称获取情绪强弱"""
         return self.db.query(StrengthPO).filter(StrengthPO.name == name).first()
 
-    def get_all(self) -> list[type[StrengthPO]]:
+    def get_all(self) -> Sequence[StrengthPO]:
         """获取所有情绪强弱"""
         return self.db.query(StrengthPO).all()
 
@@ -34,7 +39,7 @@ class StrengthRepository:
         if not strength:
             return None
         for key, value in data.items():
-            if value is not None:
+            if key in UPDATABLE_FIELDS and value is not None:
                 setattr(strength, key, value)
         self.db.commit()
         self.db.refresh(strength)

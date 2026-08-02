@@ -84,13 +84,17 @@ class ChapterService:
         - 检查同名冲突
         - 检查project_id不能改变
         """
-        title = data["title"]
-        project_id = data["project_id"]
-        if self.repository.get_by_name(title, project_id) and self.repository.get_by_name(title,project_id).id != chapter_id:
-            return False
+        title = data.get("title")
+        project_id = data.get("project_id")
+        if title and project_id is not None:
+            existing = self.repository.get_by_name(title, project_id)
+            if existing and existing.id != chapter_id:
+                return False
         po = self.repository.get_by_id(chapter_id)
+        if po is None:
+            return False
         # 防止改变project_id
-        if po.project_id != project_id:
+        if project_id is not None and po.project_id != project_id:
             return False
         self.repository.update(chapter_id, data)
         return True
@@ -170,7 +174,12 @@ class ChapterService:
         将文本按标点/换行断句，并按最大长度分组，确保每段以标点结束。
         支持中英文标点和换行符。
         """
-        content = self.get_chapter(chapter_id).text_content
+        chapter = self.get_chapter(chapter_id)
+        if chapter is None:
+            return []
+        content = chapter.text_content
+        if not content:
+            return []
         # 去掉空行
         content = "\n".join([line for line in content.split("\n") if line.strip()])
 
@@ -215,6 +224,11 @@ class ChapterService:
         try :
     #         获取content
             chapter = self.repository.get_by_id(chapter_id)
+            if chapter is None:
+                return {
+                    "success": False,
+                    "message": "章节不存在"
+                }
             # content = chapter.text_content
     #          获取角色列表
     #         role_repository = RoleRepository(db)
@@ -228,19 +242,29 @@ class ChapterService:
 
             project_repository = ProjectRepository(db)
             project = project_repository.get_by_id(chapter.project_id)
+            if project is None:
+                return {
+                    "success": False,
+                    "message": "项目不存在"
+                }
             llm_provider_id = project.llm_provider_id
             #
             llm_provider_repository = LLMProviderRepository(db)
             llm_provider = llm_provider_repository.get_by_id(llm_provider_id)
+            if llm_provider is None:
+                return {
+                    "success": False,
+                    "message": "LLM 供应商不存在"
+                }
             llm = LLMEngine(llm_provider.api_key, llm_provider.api_base_url, project.llm_model, llm_provider.custom_params)
             try:
                 llm.generate_text_test("请输出一份用户信息，严格使用 JSON 格式，不要包含任何额外文字。字段包括：name, age, city")
                 logging.info("LLM可用")
             except Exception as e:
-                logging.warning("LLM不可用")
+                logging.exception("LLM 不可用: %s", e)
                 return {
                     "success": False,
-                    "message": f"LLM 不可用: {str(e)}"
+                    "message": "LLM 服务暂不可用, 请稍后重试"
                 }
             logging.info("开始内容解析")
             try:
@@ -280,7 +304,7 @@ class ChapterService:
                             logging.error("dict中既无列表字段也非有效台词，keys: %s", list(parsed_data.keys()))
                             return {
                                 "success": False,
-                                "message": f"LLM返回的数据格式不正确，期望列表但收到字典且无可提取的列表字段: {list(parsed_data.keys())}",
+                                "message": "LLM 返回的数据格式不正确",
                             }
 
                 # 验证 parsed_data 是否为有效的字典列表
@@ -288,7 +312,7 @@ class ChapterService:
                     logging.error("LLM返回的数据不是列表，实际类型: %s", type(parsed_data))
                     return {
                         "success": False,
-                        "message": f"LLM返回的数据格式不正确，期望列表但收到: {type(parsed_data).__name__}",
+                        "message": "LLM 返回的数据格式不正确",
                     }
                 
                 # 验证列表中的每个元素是否为字典
@@ -297,7 +321,7 @@ class ChapterService:
                         logging.error("列表第 %d 项不是字典，实际类型: %s, 内容: %s", idx, type(item), str(item)[:100])
                         return {
                             "success": False,
-                            "message": f"LLM返回的数据格式不正确，列表第 {idx} 项应为字典但收到: {type(item).__name__}",
+                            "message": "LLM 返回的数据格式不正确",
                         }
                 
                 # 这里进行自动填充
@@ -318,7 +342,7 @@ class ChapterService:
                 logging.exception("调用 LLM 出错: %s", e)
                 return {
                     "success": False,
-                    "message": f"调用 LLM 出错: {str(e)}"
+                    "message": "LLM 服务暂不可用, 请稍后重试"
                 }
         finally:
             db.close()

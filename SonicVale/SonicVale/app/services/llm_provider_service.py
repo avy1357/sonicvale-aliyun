@@ -1,12 +1,11 @@
 import json
 import logging
 
-from aiohttp.abc import HTTPException
-from sqlalchemy import Sequence
+from sqlalchemy import select, func
 
 from app.core.llm_engine import LLMEngine
 from app.entity.llm_provider_entity import LLMProviderEntity
-from app.models.po import LLMProviderPO
+from app.models.po import LLMProviderPO, ProjectPO
 
 from app.repositories.llm_provider_repository import LLMProviderRepository
 
@@ -63,17 +62,27 @@ class LLMProviderService:
         - 可以只更新部分字段
         - 检查同名冲突
         """
-        name = data["name"]
-        if self.repository.get_by_name(name) and self.repository.get_by_name(name).id != llm_provider_id:
-            return False
+        name = data.get("name")
+        if name:
+            existing = self.repository.get_by_name(name)
+            if existing and existing.id != llm_provider_id:
+                return False
         self.repository.update(llm_provider_id, data)
         return True
 
     def delete_llm_provider(self, llm_provider_id: int) -> bool:
         """删除LLM供应商
-        - 可以添加业务校验，例如LLM供应商下有章节是否允许删除
-        - 后续需要级联删除所有章节内容
+        - 删除前检查是否被 project 引用,被引用则禁止删除
         """
+        db = self.repository.db
+        # 检查是否有 project 引用了该 LLM 供应商
+        count = db.execute(
+            select(func.count()).select_from(ProjectPO).where(
+                ProjectPO.llm_provider_id == llm_provider_id
+            )
+        ).scalar_one()
+        if count and count > 0:
+            return False
         res = self.repository.delete(llm_provider_id)
         return res
 
@@ -81,17 +90,18 @@ class LLMProviderService:
         """测试LLM供应商"""
         # 按逗号划分模型名称
         if entity.api_base_url is None or entity.api_key is None or entity.model_list is None:
-            return False
+            return False, "LLM 配置不完整, 请检查 api_base_url / api_key / model_list"
         model_lists = entity.model_list.split(",")
         custom_params = entity.custom_params
         llm = LLMEngine(entity.api_key, entity.api_base_url, model_lists[0],custom_params)
         try:
             res = llm.generate_text_test("请输出一份用户信息，严格使用 JSON 格式，不要包含任何额外文字。字段包括：name, age, city")
         except Exception as e:
-            return  False,str(e)
+            logging.exception("LLM 测试调用失败: %s", e)
+            return False, "LLM 服务暂不可用, 请稍后重试"
         logging.info("测试结果为：%s", res)
         if res is None:
-            return False,"LLM 未返回任何内容"
+            return False, "LLM 未返回任何内容"
 
         # 7. 校验返回是否为合法 JSON
         try:
@@ -100,7 +110,7 @@ class LLMProviderService:
             json.loads(res)
         except json.JSONDecodeError:
             return False, "LLM 返回的内容不是合法 JSON，请检查模型 / 提示词"
-        return True,"测试成功"
+        return True, "测试成功"
 
 
 

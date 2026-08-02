@@ -87,7 +87,7 @@ class AliyunTTSClient:
                     time.sleep(self.RETRY_DELAY * (2 ** attempt))
                 else:
                     logging.exception("阿里云 CosyVoice 合成失败，已达到最大重试次数")
-                    raise Exception(f"阿里云 CosyVoice 合成失败: {str(e)}")
+                    raise Exception(f"阿里云 CosyVoice 合成失败: {str(e)}") from e
 
         raise Exception("阿里云 CosyVoice 合成失败")
 

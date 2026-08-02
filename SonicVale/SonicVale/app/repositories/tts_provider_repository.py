@@ -1,6 +1,6 @@
-from typing import Optional
+from typing import Optional, Sequence
 
-from sqlalchemy import Sequence, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.po import TTSProviderPO
@@ -9,6 +9,21 @@ from app.core.crypto import (
     encrypt_provider_fields,
     decrypt_provider_fields,
     encrypt_provider_dict,
+)
+
+# 可更新字段白名单, 防止主键/外键/时间戳被误覆盖
+UPDATABLE_FIELDS = (
+    "name",
+    "provider_type",
+    "api_base_url",
+    "api_key",
+    "x_api_key",
+    "access_key_id",
+    "access_key_secret",
+    "voice_type",
+    "resource_id",
+    "voice_clone_appid",
+    "status",
 )
 
 
@@ -28,9 +43,7 @@ class TTSProviderRepository:
             decrypt_provider_fields(po, TTS_PROVIDER_SECRET_FIELDS)
         return pos
 
-
     def create(self, data: TTSProviderPO) -> TTSProviderPO:
-
         """新增tts供应商"""
         # 写库前对敏感字段加密
         encrypt_provider_fields(data, TTS_PROVIDER_SECRET_FIELDS)
@@ -41,35 +54,33 @@ class TTSProviderRepository:
         decrypt_provider_fields(data, TTS_PROVIDER_SECRET_FIELDS)
         return data
 
-
-    def update(self, tts_provider_id: int, voice_data: dict) -> Optional[TTSProviderPO]:
+    def update(self, tts_provider_id: int, tts_provider_data: dict) -> Optional[TTSProviderPO]:
         """更新tts供应商信息"""
-        voice = self.get_by_id(tts_provider_id)
-        if not voice:
+        tts_provider = self.get_by_id(tts_provider_id)
+        if not tts_provider:
             return None
         # 对 dict 中的敏感字段加密(只加密存在的字段)
-        encrypt_provider_dict(voice_data, TTS_PROVIDER_SECRET_FIELDS)
-        for key, value in voice_data.items():
-            if value is not None:  # 只更新不为空的字段
-                setattr(voice, key, value)
+        encrypt_provider_dict(tts_provider_data, TTS_PROVIDER_SECRET_FIELDS)
+        for key, value in tts_provider_data.items():
+            if key in UPDATABLE_FIELDS and value is not None:
+                setattr(tts_provider, key, value)
 
         self.db.commit()
-        self.db.refresh(voice)
-        decrypt_provider_fields(voice, TTS_PROVIDER_SECRET_FIELDS)
-        return voice
+        self.db.refresh(tts_provider)
+        decrypt_provider_fields(tts_provider, TTS_PROVIDER_SECRET_FIELDS)
+        return tts_provider
 
-    # def delete(self, voice_id: int) -> bool:
-    #     """删除项目"""
-    #     voice = self.get_by_id(voice_id)
-    #     if not voice:
-    #         return False
-    #     self.db.delete(voice)
-    #     self.db.commit()
-    #     return True
-    #
-    #
+    def delete(self, tts_provider_id: int) -> bool:
+        """删除tts供应商"""
+        tts_provider = self.db.get(TTSProviderPO, tts_provider_id)
+        if not tts_provider:
+            return False
+        self.db.delete(tts_provider)
+        self.db.commit()
+        return True
+
     def get_by_name(self, name: str) -> Optional[TTSProviderPO]:
-        """根据名称查找项目下的tts供应商信息"""
+        """根据名称查找tts供应商信息"""
         po = self.db.execute(select(TTSProviderPO).where(TTSProviderPO.name == name)).scalars().first()
         return decrypt_provider_fields(po, TTS_PROVIDER_SECRET_FIELDS)
 

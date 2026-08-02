@@ -1,5 +1,4 @@
 import request from './config'
-import dayjs from 'dayjs'
 
 export function getChaptersByProject(projectId) {
   return request.get(`/chapters/project/${projectId}`)

@@ -1,5 +1,7 @@
 
-from sqlalchemy import Column, Integer, Integer, String, Text, Enum, ForeignKey, DateTime, JSON, Index
+import json
+
+from sqlalchemy import Column, Integer, String, Text, Enum, ForeignKey, DateTime, JSON, Index
 from datetime import datetime, timezone
 
 from app.db.database import Base
@@ -100,7 +102,7 @@ class EmotionPO(Base):
     description = Column(Text, nullable=True)
     is_active = Column(Integer, default=1, nullable=False)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
-    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now())
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
 
 # 情绪强弱枚举表
 class StrengthPO(Base):
@@ -111,7 +113,7 @@ class StrengthPO(Base):
     description = Column(Text, nullable=True)
     is_active = Column(Integer, default=1, nullable=False)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
-    updated_at = Column(DateTime, default=lambda: datetime.now())
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
 
 
 class LinePO(Base):
@@ -169,19 +171,19 @@ class LLMProviderPO(Base):
     name = Column(String(255), nullable=False, unique=True)           # 提供商名称
     api_base_url = Column(String(500), nullable=False)
     api_key = Column(String(500), nullable=True)                      # 可加密存储
-    model_list = Column(JSON, nullable=True)                           # 支持的模型列表
+    model_list = Column(String(1000), nullable=True)                  # 支持的模型列表（逗号分隔的字符串）
     status = Column(Integer, default=1, nullable=False)               # 启用/禁用
 
     # ✅ 自定义参数（默认包含 response_format、temperature、top_p）
+    # 列类型为 Text，默认值必须是 JSON 字符串，避免落库损坏
     custom_params = Column(
         Text,
         nullable=False,
-        default=lambda: {
+        default=lambda: json.dumps({
             "response_format": {"type": "json_object"},
             "temperature": 0.7,
             "top_p": 0.9
-
-        }
+        }, ensure_ascii=False)
     )
     # 时间戳
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)

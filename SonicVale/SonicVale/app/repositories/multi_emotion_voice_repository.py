@@ -1,6 +1,6 @@
-from typing import Optional, Sequence, Any
+from typing import Optional, Sequence
 
-from sqlalchemy.orm import Session, Query
+from sqlalchemy.orm import Session
 
 from app.models.po import MultiEmotionVoicePO
 
@@ -17,17 +17,17 @@ class MultiEmotionVoiceRepository:
         return self.db.query(MultiEmotionVoicePO).filter(MultiEmotionVoicePO.id == id).first()
 
     # 根据voice_id,emotion_id,strength_id获取多情绪音色
-    def get_by_voice_id_emotion_id_strength_id(self, voice_id: int, emotion_id: int, strength_id: int) -> type[MultiEmotionVoicePO] | None:
+    def get_by_voice_id_emotion_id_strength_id(self, voice_id: int, emotion_id: int, strength_id: int) -> Optional[MultiEmotionVoicePO]:
         """根据voice_id,emotion_id,strength_id获取多情绪音色"""
         return self.db.query(MultiEmotionVoicePO).filter(MultiEmotionVoicePO.voice_id == voice_id,
                                                          MultiEmotionVoicePO.emotion_id == emotion_id,
                                                          MultiEmotionVoicePO.strength_id == strength_id).one_or_none()
     # 根据voice_id获取多情绪音色
-    def get_by_voice_id(self, voice_id: int) -> Sequence[type[MultiEmotionVoicePO]]:
+    def get_by_voice_id(self, voice_id: int) -> Sequence[MultiEmotionVoicePO]:
         """根据voice_id获取多情绪音色"""
         return self.db.query(MultiEmotionVoicePO).filter(MultiEmotionVoicePO.voice_id == voice_id).all()
 
-    def get_all(self) -> list[type[MultiEmotionVoicePO]]:
+    def get_all(self) -> Sequence[MultiEmotionVoicePO]:
         """获取所有多情绪音色"""
         return self.db.query(MultiEmotionVoicePO).all()
 

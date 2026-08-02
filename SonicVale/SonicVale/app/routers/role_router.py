@@ -70,7 +70,7 @@ def get_role(role_id: int, role_service: RoleService = Depends(get_role_service)
         res = RoleResponseDTO(**entity.__dict__)
         return Res(data=res, code=200, message="查询成功")
     else:
-        return Res(data=None, code=404, message="项目不存在")
+        return Res(data=None, code=404, message="角色不存在")
 
 @router.get("/project/{project_id}", response_model=Res[List[RoleResponseDTO]],
             summary="查询项目下的所有角色",
@@ -84,7 +84,7 @@ def get_all_roles(project_id: int, role_service: RoleService = Depends(get_role_
         return Res(data=[], code=404, message="项目不存在角色")
 
 # 修改，传入的参数是id
-@router.put("/{role_id}", response_model=Res[RoleCreateDTO],
+@router.put("/{role_id}", response_model=Res[RoleResponseDTO],
             summary="修改角色信息",
             description="根据角色id修改角色信息,并且不能修改项目id")
 def update_role(role_id: int, dto: RoleCreateDTO, role_service: RoleService = Depends(get_role_service)):
@@ -93,7 +93,8 @@ def update_role(role_id: int, dto: RoleCreateDTO, role_service: RoleService = De
         return Res(data=None, code=404, message="角色不存在")
     res = role_service.update_role(role_id, dto.dict(exclude_unset=True))
     if res:
-        return Res(data=dto, code=200, message="修改成功")
+        updated_role = role_service.get_role(role_id)
+        return Res(data=RoleResponseDTO(**updated_role.__dict__), code=200, message="修改成功")
     else:
         return Res(data=None, code=400, message="修改失败")
 

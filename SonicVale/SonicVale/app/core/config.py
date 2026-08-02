@@ -1,7 +1,4 @@
-import os
-
 import os, sys
-from pathlib import Path
 # 得到默认配置文件
 def getConfigPath():
     # 用户 目录下SonicVale目录
@@ -15,6 +12,6 @@ def getConfigPath():
     return user_dir
 
 def getFfmpegPath():
-    BASE_DIR = getattr(sys, "_MEIPASS", Path(os.path.abspath(".")))
+    BASE_DIR = getattr(sys, "_MEIPASS", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     FFMPEG_PATH = os.path.join(BASE_DIR, "core", "ffmpeg", "ffmpeg.exe")
     return FFMPEG_PATH

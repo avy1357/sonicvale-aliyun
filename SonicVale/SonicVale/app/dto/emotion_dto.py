@@ -12,11 +12,7 @@ class EmotionCreateDTO(BaseModel):
     is_active: Optional[int] = 1
 
 
-class EmotionResponseDTO(BaseModel):
-    name: str
-    id: Optional[int] = None
-    description: Optional[str] = None
-    is_active: Optional[int] = 1
+class EmotionResponseDTO(EmotionCreateDTO):
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 

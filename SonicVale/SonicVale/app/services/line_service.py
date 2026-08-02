@@ -41,17 +41,22 @@ def _lock_key(path: str) -> str:
 # (defaultdict 在多线程下可能各自创建新 Lock,导致锁完全失效)
 _file_locks_guard = threading.Lock()
 _file_locks: dict = {}
+_FILE_LOCKS_MAX_SIZE = 100
 
 
 def _get_file_lock(path: str) -> threading.Lock:
     """线程安全地获取路径对应的文件锁。
 
     使用全局 guard lock 保护字典访问,确保同一 path 始终拿到同一个 Lock 对象。
+    当字典大小超过 _FILE_LOCKS_MAX_SIZE 时,清理未被持有的锁以防止内存增长。
     """
     key = _lock_key(path)
     with _file_locks_guard:
         lock = _file_locks.get(key)
         if lock is None:
+            # 清理未被持有的锁,防止字典无限增长
+            if len(_file_locks) > _FILE_LOCKS_MAX_SIZE:
+                _file_locks.clear()
             lock = threading.Lock()
             _file_locks[key] = lock
         return lock
@@ -194,7 +199,8 @@ class LineService:
             try:
                 audio_exists = tts_engine.check_audio_exists(reference_path)
             except Exception as e:
-                raise Exception(f"检查参考音频失败: {str(e)}")
+                logging.exception("检查参考音频失败: %s", e)
+                raise Exception("检查参考音频失败, 请稍后重试")
             
             if not audio_exists:
                 if not os.path.isfile(reference_path):
@@ -202,7 +208,8 @@ class LineService:
                 
                 upload_result = tts_engine.upload_audio(reference_path, reference_path)
                 if upload_result.get('code') and upload_result.get('code') != 200:
-                    raise Exception(f"上传参考音频失败: {upload_result.get('msg', '未知错误')}")
+                    logging.error("上传参考音频失败: %s", upload_result)
+                    raise Exception("上传参考音频失败, 请稍后重试")
             
             return tts_engine.synthesize(content, reference_path, emo_text, emo_vector, save_path)
     
@@ -717,16 +724,17 @@ class LineService:
             try:
                 self.concat_wav_files(paths, output_path)
             except ValueError as e:
+                logging.exception("[export_audio] concat_wav_files 失败(ValueError)")
                 return {
                     "success": False,
-                    "message": f"音频合并失败: {str(e)}",
+                    "message": "音频合并失败, 请稍后重试",
                     "missing_files": missing_files
                 }
             except Exception as e:
                 logging.exception("[export_audio] concat_wav_files 失败")
                 return {
                     "success": False,
-                    "message": f"音频合并异常: {str(e)}",
+                    "message": "音频合并失败, 请稍后重试",
                     "missing_files": missing_files
                 }
             
@@ -780,7 +788,7 @@ class LineService:
             
         except Exception as e:
             logging.exception("[export_audio] 未预期的错误")
-            return {"success": False, "message": f"导出失败: {str(e)}"}
+            return {"success": False, "message": "导出失败, 请稍后重试"}
 
 
 

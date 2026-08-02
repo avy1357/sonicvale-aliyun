@@ -102,8 +102,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,        # 允许的源
     allow_credentials=True,
-    allow_methods=["*"],          # 允许所有方法（GET, POST, DELETE...）
-    allow_headers=["*"],          # 允许所有请求头
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH"],   # 限定允许的方法
+    allow_headers=["Authorization", "Content-Type", "Accept"],   # 限定允许的请求头
 )
 
 
@@ -228,8 +228,8 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 # def startup():
 #     Base.metadata.create_all(bind=engine)
 
-WORKERS = 1
-QUEUE_CAPACITY = 0
+WORKERS = int(os.getenv("SVC_WORKERS", "2"))
+QUEUE_CAPACITY = int(os.getenv("SVC_QUEUE_CAPACITY", "100"))
 
 from sqlalchemy import text
 
@@ -299,6 +299,9 @@ def get_tts_service(db: Session = Depends(get_db)) -> TTSProviderService:
 
 @app.on_event("startup")
 async def startup_event():
+    # 0) 启动时再次确认认证状态(此时 logging 已配置,警告会同时写入日志文件)
+    if not SVC_API_KEY:
+        _warn_no_auth()
     # 1) 建表
     try:
         Base.metadata.create_all(bind=engine)

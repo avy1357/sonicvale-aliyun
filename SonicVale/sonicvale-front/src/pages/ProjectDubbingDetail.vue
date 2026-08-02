@@ -1082,7 +1082,6 @@ async function openRootDir  (){
 }
 // 保存=更新项目（直接调用你的 update 接口）
 async function saveProjectSettings() {
-    console.log('保存项目设置', settingsForm.value)
     if (!projectId) return
 
     try {
@@ -1101,10 +1100,7 @@ async function saveProjectSettings() {
             is_precise_fill: settingsForm.value.is_precise_fill,
             project_root_path: settingsForm.value.project_root_path
         }
-        console.log('保存项目设置结果', projectId)
-
         const res = await projectAPI.updateProject(projectId, payload)
-        console.log('保存项目设置结果', res)
         if (res?.code === 200) {
             ElMessage.success('项目设置已保存')
             settingsVisible.value = false
@@ -1244,9 +1240,7 @@ function openEditDialog() {
 
 async function submitImport() {
     if (!activeChapterId.value) return
-    console.log('导入章节正文')
     const text = importText.value
-    console.log('导入章节正文', text)
     const exist = chapters.value.find(c => c.id === activeChapterId.value)
     const payload = {
         title: exist?.title || '未命名章节',
@@ -1287,7 +1281,7 @@ async function splitByLLM() {
 
     try {
         await ElMessageBox.confirm(
-            '确定要调用 LLM 对该章节进行台词拆分吗？此操作可能覆盖原有台词。',
+            '此操作将先删除现有全部台词，如果 LLM 拆分失败，数据将无法恢复。是否继续？',
             '确认操作',
             {
                 confirmButtonText: '确定',
@@ -1317,10 +1311,8 @@ async function splitByLLM() {
     })
 
     try {
-        console.log('llm进行台词拆分请求开始', projectId, activeChapterId.value)
         const res = await chapterAPI.splitChapterByLLM(projectId, activeChapterId.value)
         if (res?.code === 200) {
-            console.log('llm进行台词拆分请求结果 typeof=', typeof res.data, res.data)
             await loadLines()
             await loadRoles()
         } else {
@@ -1461,8 +1453,6 @@ async function generateOne(row) {
             text_content: row.text_content,
             audio_path: row.audio_path,
         }
-
-        console.log('准备生成音频:', body)
 
         const res = await lineAPI.generateAudio(projectId, activeChapterId.value, body)
 
@@ -1632,7 +1622,6 @@ async function loadRoles() {
 async function loadVoices() {
     // 默认 TTS = 1
     const res = await voiceAPI.getVoicesByTTS()
-    console.log('loadVoices', res)
     voicesOptions.value = res?.code === 200 ? (res.data || []) : []
 }
 
@@ -1690,6 +1679,8 @@ onUnmounted(() => {
         audioPlayer.removeEventListener('pause', onAudioPause)
         audioPlayer.removeEventListener('ended', onAudioEnded)
     } catch { }
+    // 清理试听音频 currentAudio，避免资源泄漏
+    if (currentAudio) { currentAudio.pause(); currentAudio = null }
     // 清理重连定时器
     if (reconnectTimer) clearTimeout(reconnectTimer)
     // 清理心跳定时器
@@ -1881,7 +1872,6 @@ async function insertBelow(row) {
         line_order: index + 1
     }))
 
-    console.log('orderList', orderList)
     // 4) 调用批量重排接口
     const reorderRes = await lineAPI.reorderLinesByPut(orderList)
 
@@ -1973,7 +1963,6 @@ async function deleteLine(row) {
 
 async function updateLineRole(row) {
     if (!row?.id || row.role_id === null) return
-    console.log('updateLineRole', row)
     const res = await lineAPI.updateLine(row.id, {
         chapter_id: row.chapter_id,
         role_id: row.role_id,
@@ -2121,7 +2110,7 @@ async function submitImportThird() {
     // 二次确认
     try {
         await ElMessageBox.confirm(
-            '导入将会【删除本章节现有全部台词】并用第三方 JSON 重建，是否继续？',
+            '此操作将先删除本章节现有全部台词再用第三方 JSON 重建，操作不可逆，如果导入失败数据将无法恢复。是否继续？',
             '确认导入',
             { type: 'warning', confirmButtonText: '继续', cancelButtonText: '取消' }
         )
@@ -2254,7 +2243,6 @@ async function markAllAsCompleted() {
         const newName = `${ord}_${safeText}.wav`
         // const newName = `index${ord}.wav`
         const currentName = /[^/\\]+$/.exec(line.audio_path)?.[0]
-        console.log('currentName=', currentName)
         if (currentName === newName) { skip2++; continue }
 
         const newPath = replaceFilename(line.audio_path, newName)
@@ -2443,7 +2431,7 @@ function togglePlay(row) {
     currentAudio = new Audio(src)
     playingLineId.value = row.id
     currentAudio.onended = () => { playingLineId.value = null; currentAudio = null }
-    currentAudio.play()
+    currentAudio.play().catch(() => {})
 }
 
 function downloadAudio(row) {
@@ -2457,13 +2445,11 @@ function downloadAudio(row) {
 
 function registerWave({ handle, id }) {
     if (handle && id) {
-        console.log('registerWave', id, handle)
         waveHandleMap.set(id, handle)   // 直接覆盖
     }
 }
 
 function unregisterWave({ handle, id }) {
-    console.log('unregisterWave', id)
     if (id && waveHandleMap.has(id)) {
         try { waveHandleMap.get(id)?.pause?.() } catch { }
         waveHandleMap.delete(id)
@@ -2499,7 +2485,6 @@ async function confirmAndProcess(row, payload) {
         ElMessage.warning('❌ 裁剪区间与指定位置添加静音不能同时使用')
         return
     }
-    console.log('confirmAndProcess', row.id, body)
     const res = await lineAPI.processAudio(row.id, body)
     if (res?.code === 200) {
         ElMessage.success('后端处理完成')
@@ -2938,13 +2923,11 @@ watch(completionSoundEnabled, (val) => {
 })
 // 处理 ended 事件
 function handleEnded({ handle, id }) {
-    console.log('handleEnded', id, playMode.value)
     if (playMode.value !== 'sequential') return
 
     // 拿到当前行列表（确保按 line_order 排序）
     const list = [...displayedLines.value].sort((a, b) => a.line_order - b.line_order)
     const idx = list.findIndex(l => l.id === id)
-    console.log('当前行索引', idx, '，总行数', list.length)
     if (idx === -1 || idx === list.length - 1) return // 找不到或最后一条
 
     if (idx === -1) {
@@ -2952,7 +2935,6 @@ function handleEnded({ handle, id }) {
         return
     }
     if (idx === list.length - 1) {
-        console.log('handleEnded: 已是最后一行，顺序播放结束')
         return
     }
 
@@ -2966,14 +2948,10 @@ function handleEnded({ handle, id }) {
     }
 
     if (!nextRow) {
-        console.log('handleEnded: 后续没有可播放的音频，顺序播放结束')
         return
     }
 
     // 找到下一行对应的 WaveCellPro 实例
-    console.log('下一行 ID:', nextRow.id)
-
-
     const nextHandle = waveHandleMap.get(nextRow.id)
 
     if (!nextHandle) {
@@ -2982,7 +2960,6 @@ function handleEnded({ handle, id }) {
     }
 
     if (nextHandle?.play) {
-        console.log('handleEnded: 播放下一行 => ID:', nextRow.id)
         stopOthers(nextHandle) // 停止其他行
         nextHandle.play()
     } else {
@@ -3246,7 +3223,6 @@ const lineColumns = reactive([
                             const newVal = val === 'done' ? 1 : 0
                             if (rowData.is_done === newVal) return
                             rowData.is_done = newVal
-                            console.log('切换台词完成状态:', rowData.is_done)
                             updateLineIsDone(rowData, newVal)
                         },
                     }),
@@ -3373,7 +3349,6 @@ async function handleBatchImport() {
         const arrayBuffer = await file.arrayBuffer()
         // ✅ 仅 UTF-8 / GBK 自动识别
         const { encoding, text } = decodeUtf8OrGbk(arrayBuffer);
-        console.log('TXT 文件内容:', text)
         // 如果文件内容为空
         if (!text.trim()) {
             ElMessage.warning('TXT 文件为空，未执行导入')
@@ -3437,7 +3412,6 @@ function saveLastChapter() {
     const key = 'lastChapterMap';
     const map = JSON.parse(localStorage.getItem(key) || '{}');
     map[projectId] = activeChapterId.value;
-    console.log('保存最后章节', map);
     localStorage.setItem(key, JSON.stringify(map));
 }
 
@@ -3457,7 +3431,6 @@ function restoreLastChapter() {
     const map = JSON.parse(localStorage.getItem(key) || '{}');
     const last = map[projectId];
 
-    console.log('恢复最后章节', map, last);
     if (last && chapters.value.find(c => c.id === last)) {
         // 只有当上次选择的章节仍然存在时才恢复
         activeChapterId.value = last;
@@ -3465,7 +3438,6 @@ function restoreLastChapter() {
         // 不自动选择章节，让用户手动选择
         activeChapterId.value = null;
     }
-    console.log('最终选中章节', activeChapterId.value);
 }
 
 

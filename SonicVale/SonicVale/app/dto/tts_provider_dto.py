@@ -1,13 +1,13 @@
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 
 
 class TTSProviderCreateDTO(BaseModel):
     name: Optional[str] = None
     id: Optional[int] = None
-    provider_type: Optional[str] = "index_tts"  # index_tts / volcano / aliyun
+    provider_type: Optional[str] = Field(default="index_tts", pattern=r"^(index_tts|volcano|aliyun)$")  # index_tts / volcano / aliyun
     api_base_url: Optional[str] = None
     api_key: Optional[str] = None
     x_api_key: Optional[str] = None  # X-Api-Key（火山引擎新版鉴权）

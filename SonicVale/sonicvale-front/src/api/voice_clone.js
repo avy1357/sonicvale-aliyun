@@ -25,7 +25,7 @@ export function uploadAudio(data) {
 }
 
 export function queryStatus(cloneId) {
-  return request.post(`/voice-clones/status?clone_id=${cloneId}`)
+  return request.post('/voice-clones/status', null, { params: { clone_id: cloneId } })
 }
 
 export function trainAndWait(data) {

@@ -21,4 +21,5 @@ class KuaiShouASR(BaseASR):
         }
         files = [('file', ('test.mp3', self.file_binary, 'audio/mpeg'))]
         result = requests.post("https://ai.kuaishou.com/api/effects/subtitle_generate", data=payload, files=files, timeout=120)
+        result.raise_for_status()
         return result.json()

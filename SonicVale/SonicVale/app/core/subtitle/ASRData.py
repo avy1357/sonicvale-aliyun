@@ -138,7 +138,7 @@ class ASRData:
         for i, segment in enumerate(self.segments, 1):
             # 检查是否有换行符
             if "\n" in segment.text:
-                original_subtitle, translated_subtitle = segment.text.split("\n")
+                original_subtitle, translated_subtitle = segment.text.split("\n", 1)
             else:
                 original_subtitle, translated_subtitle = segment.text, ""
 
@@ -194,7 +194,7 @@ class ASRData:
 
             # 检查是否有换行符分隔的原文和译文
             if "\n" in seg.text:
-                original, translate = seg.text.split("\n")
+                original, translate = seg.text.split("\n", 1)
                 if layout == "译文在上" and translate:
                     ass_content += dialogue_template.format(start_time, end_time, "Secondary", original)
                     ass_content += dialogue_template.format(start_time, end_time, "Default", translate)
@@ -505,29 +505,6 @@ def from_ass(ass_str: str) -> 'ASRData':
                     segments.append(ASRDataSeg(text, start_time, end_time))
     
     return ASRData(segments)
-
-if __name__ == '__main__':
-    ass_style_str = """[V4+ Styles]
-Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding
-Style: Default,微软雅黑,62,&H0017f1be,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,1.0,0,1,0.8,0,2,10,10,10,1
-Style: Secondary,微软雅黑,40,&H00ffffff,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0.0,0,1,0.0,0,2,10,10,10,1"""
-    # 测试
-    from pathlib import Path
-    # vtt_file_path = r"E:\GithubProject\VideoCaptioner\app\work_dir\Setting the record straight\subtitle\original_subtitle.en.vtt"
-    # vtt_file_path = r"E:\GithubProject\VideoCaptioner\work_dir\Wake up babe a dangerous new open-source AI model is here\subtitle\original.en.vtt"
-    # asr_data = from_youtube_vtt(Path(vtt_file_path).read_text(encoding="utf-8"))
-    srt_file_path = r"E:\GithubProject\VideoCaptioner\app\work_dir\低视力音乐助人者_mp4\result_subtitle.srt"
-    asr_data = from_srt(Path(srt_file_path).read_text(encoding="utf-8"))
-
-    logging.info("%s", asr_data.to_ass(style_str=ass_style_str, save_path=srt_file_path.replace(".srt", ".ass")))
-    # pass
-    # asr_data = ASRData(seg)
-    # Uncomment to test different formats:
-    # print(asr_data.to_srt(save_path=vtt_file_path.replace(".vtt", ".srt")))
-    # print(asr_data.to_lrc())
-    # print(asr_data.to_txt())
-    # print(asr_data.to_json())
-    # print(asr_data.to_json())
 
 
 

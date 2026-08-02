@@ -1,10 +1,17 @@
-from typing import Optional, List
+from typing import Optional, Sequence
 
-from sqlalchemy import Sequence, select, update
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.dto.line_dto import LineOrderDTO
 from app.models.po import LinePO
+
+# 允许通过 update 更新的字段白名单,防止主键 id、外键 chapter_id、created_at、updated_at 等被覆盖
+UPDATABLE_FIELDS = (
+    "text_content", "role_id", "voice_id", "audio_path", "subtitle_path",
+    "emotion_id", "strength_id", "instruction", "line_order",
+    "status", "is_done",
+)
 
 
 class LineRepository:
@@ -39,7 +46,7 @@ class LineRepository:
         if not line:
             return None
         for key, value in line_data.items():
-            if value is not None:  # 只更新不为空的字段
+            if key in UPDATABLE_FIELDS and value is not None:  # 只更新白名单且不为空的字段
                 setattr(line, key, value)
 
         self.db.commit()
@@ -65,7 +72,7 @@ class LineRepository:
     def get_lines_by_role_id(self, role_id: int):
         return self.db.execute(select(LinePO).where(LinePO.role_id == role_id)).scalars().all()
 
-    def batch_update_line_order(self, line_orders:List[LineOrderDTO])-> int:
+    def batch_update_line_order(self, line_orders: Sequence[LineOrderDTO]) -> int:
         """批量更新台词的顺序"""
         if not line_orders:
             return 0

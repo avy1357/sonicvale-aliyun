@@ -189,9 +189,6 @@ def correct_srt_file(original_text: str, srt_path: str,
     write_srt(target_path, corrected_entries)
     logging.info("已生成 %s （逐行对齐修正完成）", target_path)
 
-if __name__ == '__main__':
-    generate_subtitle("C:\\Users\\lxc18\\SonicVale\\1\\1\\audio\\id_2.wav","C:\\Users\\lxc18\\SonicVale\\1\\1\\audio\\id_1.srt")
-
 
 # -------------------- LLM 字幕矫正 --------------------
 
@@ -236,7 +233,7 @@ def correct_srt_file_with_llm(
         
         # 准备当前批次的字幕数据
         subtitle_lines = [
-            {"index": idx, "text": txt.replace("\n", " ").replace('"', '\\"')}
+            {"index": idx, "text": txt.replace("\n", " ")}
             for idx, ts, txt in batch_entries
         ]
         

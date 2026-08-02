@@ -103,7 +103,7 @@ def get_line(line_id: int, line_service: LineService = Depends(get_line_service)
         res = LineResponseDTO(**entity.__dict__)
         return Res(data=res, code=200, message="查询成功")
     else:
-        return Res(data=None, code=404, message="项目不存在")
+        return Res(data=None, code=404, message="台词不存在")
 
 @router.get("/lines/{chapter_id}", response_model=Res[List[LineResponseDTO]],
             summary="查询章节下的所有台词",

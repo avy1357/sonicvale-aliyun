@@ -33,6 +33,8 @@ class BcutASR(BaseASR):
         'User-Agent': 'Bilibili/1.0.0 (https://www.bilibili.com)',
         'Content-Type': 'application/json'
     }
+    _max_poll_times = 500
+    _poll_interval = 1
 
     def __init__(self, audio_path: Union[str, bytes], use_cache: bool = False):
         super().__init__(audio_path, use_cache=use_cache)
@@ -61,7 +63,7 @@ class BcutASR(BaseASR):
             "model_id": "8",
         })
 
-        resp = requests.post(
+        resp = self.session.post(
             API_REQ_UPLOAD,
             data=payload,
             headers=self.headers,
@@ -90,7 +92,7 @@ class BcutASR(BaseASR):
             start_range = clip * self.__per_size
             end_range = (clip + 1) * self.__per_size
             logging.info(f"开始上传分片{clip}: {start_range}-{end_range}")
-            resp = requests.put(
+            resp = self.session.put(
                 self.__upload_urls[clip],
                 data=self.file_binary[start_range:end_range],
                 headers=self.headers,
@@ -110,7 +112,7 @@ class BcutASR(BaseASR):
             "UploadId": self.__upload_id,
             "model_id": "8",
         })
-        resp = requests.post(
+        resp = self.session.post(
             API_COMMIT_UPLOAD,
             data=data,
             headers=self.headers,
@@ -123,7 +125,7 @@ class BcutASR(BaseASR):
 
     def create_task(self) -> str:
         """开始创建转换任务"""
-        resp = requests.post(
+        resp = self.session.post(
             API_CREATE_TASK, json={"resource": self.__download_url, "model_id": "8"}, headers=self.headers,
             timeout=30
         )
@@ -135,7 +137,7 @@ class BcutASR(BaseASR):
 
     def result(self, task_id: Optional[str] = None):
         """查询转换结果"""
-        resp = requests.get(API_QUERY_RESULT, params={"model_id": 7, "task_id": task_id or self.task_id}, headers=self.headers, timeout=30)
+        resp = self.session.get(API_QUERY_RESULT, params={"model_id": 7, "task_id": task_id or self.task_id}, headers=self.headers, timeout=30)
         resp.raise_for_status()
         resp = resp.json()
         return resp["data"]
@@ -144,13 +146,22 @@ class BcutASR(BaseASR):
         self.upload()
         self.create_task()
         # 轮询检查任务状态
-        for _ in range(500):
+        for _ in range(self._max_poll_times):
             task_resp = self.result()
-            if task_resp["state"] == 4:
+            state = task_resp.get("state")
+            if state == 4:  # 成功
                 break
-            time.sleep(1)
+            elif state in (3, 5):  # 失败状态
+                raise Exception(f"BCut ASR 任务失败, 状态码: {state}")
+            time.sleep(self._poll_interval)
+        else:
+            raise TimeoutError("BCut ASR 任务超时, 未在预期时间内完成")
+
         logging.info(f"转换成功")
-        return json.loads(task_resp["result"])
+        result = task_resp.get("result")
+        if not result:
+            raise ValueError("BCut ASR 返回结果为空")
+        return json.loads(result)
 
     def _make_segments(self, resp_data: dict) -> list[ASRDataSeg]:
         return [ASRDataSeg(u['transcript'], u['start_time'], u['end_time']) for u in resp_data['utterances']]

@@ -1,10 +1,11 @@
 import requests
 import logging
-from sqlalchemy import Sequence
+from sqlalchemy import Sequence, select, func
 
 from app.entity.tts_provider_entity import TTSProviderEntity
-from app.models.po import TTSProviderPO
+from app.models.po import TTSProviderPO, ProjectPO, VoicePO
 from app.repositories.tts_provider_repository import TTSProviderRepository
+from app.core.url_security import validate_public_url
 
 
 class TTSProviderService:
@@ -35,15 +36,35 @@ class TTSProviderService:
         - 检查同名冲突
         - 检查project_id不能改变
         """
-        name = data["name"]
-        if self.repository.get_by_name(name) and self.repository.get_by_name(name).id != tts_provider_id:
-            return False
+        name = data.get("name")
+        if name:
+            existing = self.repository.get_by_name(name)
+            if existing and existing.id != tts_provider_id:
+                return False
         self.repository.update(tts_provider_id, data)
         return True
 
     def delete_tts_provider(self, tts_provider_id: int) -> bool:
         """删除tts供应商
+        - 删除前检查是否被 project 或 voice 引用,被引用则禁止删除
         """
+        db = self.repository.db
+        # 检查是否有 project 引用了该 TTS 供应商
+        project_count = db.execute(
+            select(func.count()).select_from(ProjectPO).where(
+                ProjectPO.tts_provider_id == tts_provider_id
+            )
+        ).scalar_one()
+        if project_count and project_count > 0:
+            return False
+        # 检查是否有 voice 引用了该 TTS 供应商
+        voice_count = db.execute(
+            select(func.count()).select_from(VoicePO).where(
+                VoicePO.tts_provider_id == tts_provider_id
+            )
+        ).scalar_one()
+        if voice_count and voice_count > 0:
+            return False
         res = self.repository.delete(tts_provider_id)
         return res
 
@@ -53,7 +74,7 @@ class TTSProviderService:
             return
         if self.repository.get_by_id(1) :
             return
-        po = TTSProviderPO(name="index_tts", id=1, provider_type="index_tts", status=1, api_base_url="", api_key="")
+        po = TTSProviderPO(name="index_tts", provider_type="index_tts", status=1, api_base_url="", api_key="")
         self.repository.create(po)
 
     def create_tts_provider(self, dto) -> bool:
@@ -105,6 +126,8 @@ class TTSProviderService:
         api_base_url = entity.api_base_url
         if not api_base_url:
             return False
+        # SSRF 防护:校验 URL 必须指向公网地址,非法时抛出 ValueError
+        validate_public_url(api_base_url)
         try:
             resp = requests.get(api_base_url, timeout=5)
             if 200 <= resp.status_code < 400:

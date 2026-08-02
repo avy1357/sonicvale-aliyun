@@ -1,6 +1,6 @@
-from typing import Optional
+from typing import Optional, Sequence
 
-from sqlalchemy import Sequence, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.po import VoicePO

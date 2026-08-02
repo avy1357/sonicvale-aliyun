@@ -162,7 +162,7 @@
 <script setup>
 import { ref, onMounted } from "vue"
 import { ElMessage, ElMessageBox } from "element-plus"
-import { Edit, Delete, QuestionFilled } from "@element-plus/icons-vue"
+import { Edit, Delete } from "@element-plus/icons-vue"
 import { WarningFilled } from "@element-plus/icons-vue"
 
 import {

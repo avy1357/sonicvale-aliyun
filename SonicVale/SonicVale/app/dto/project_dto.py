@@ -1,11 +1,11 @@
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 
 
 class ProjectCreateDTO(BaseModel):
-    name: str
+    name: str = Field(max_length=255)
     description: Optional[str] = None
     llm_provider_id: Optional[int] = None
     llm_model: Optional[str] = None
@@ -34,4 +34,4 @@ class ProjectResponseDTO(BaseModel):
 
 class ProjectImportDTO(BaseModel):
     id : int
-    content: str
+    content: str = Field(max_length=500000)

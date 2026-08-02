@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, Index
+from sqlalchemy import Column, Integer, String, Text, DateTime, Index, ForeignKey
 from datetime import datetime, timezone
 from app.db.database import Base
 
@@ -7,8 +7,8 @@ class VoiceClonePO(Base):
     """声音复刻记录表"""
     __tablename__ = "voice_clones"
 
-    id = Column(Integer, primary_key=True, autoincrement=True, index=True)
-    tts_provider_id = Column(Integer, nullable=False, index=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    tts_provider_id = Column(Integer, ForeignKey("tts_provider.id", ondelete="CASCADE"), nullable=False, index=True)
     name = Column(String(100), nullable=False)
     speaker_id = Column(String(100), nullable=False, unique=True, index=True)
     reference_path = Column(String(255), nullable=True)

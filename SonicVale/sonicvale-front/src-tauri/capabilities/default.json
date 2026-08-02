@@ -16,9 +16,9 @@
       "identifier": "fs:scope",
       "allow": [
         { "path": "$RESOURCE/**" },
-        { "path": "$APPDATA/**" },
-        { "path": "$DOCUMENT/**" },
-        { "path": "$HOME/**" }
+        { "path": "$APPDATA/sonicvale/**" },
+        { "path": "$DOCUMENT/SonicVale/**" },
+        { "path": "$HOME/SonicVale/**" }
       ]
     },
     "os:allow-home-dir",

@@ -1,6 +1,4 @@
 # 初始化 router
-import asyncio
-import io
 import json
 import logging
 import os
@@ -18,7 +16,7 @@ from app.core.text_correct_engine import TextCorrectorFinal
 from app.core.ws_manager import manager
 from app.db.database import get_db, SessionLocal
 from app.dto.chapter_dto import ChapterResponseDTO, ChapterCreateDTO
-from app.dto.line_dto import LineInitDTO, LineCreateDTO, LineResponseDTO
+from app.dto.line_dto import LineInitDTO
 from app.entity.chapter_entity import ChapterEntity
 from app.repositories.chapter_repository import ChapterRepository
 from app.repositories.emotion_repository import EmotionRepository
@@ -137,7 +135,7 @@ async def get_all_chapters(project_id: int, chapter_service: ChapterService = De
         return Res(data=[], code=404, message="项目不存在章节")
 
 # 修改，传入的参数是id
-@router.put("/{chapter_id}", response_model=Res[ChapterCreateDTO],
+@router.put("/{chapter_id}", response_model=Res[ChapterResponseDTO],
             summary="修改章节",
             description="根据章节id修改章节信息,并且不能修改项目id")
 async def update_chapter(chapter_id: int, dto: ChapterCreateDTO, chapter_service: ChapterService = Depends(get_chapter_service)):
@@ -146,7 +144,8 @@ async def update_chapter(chapter_id: int, dto: ChapterCreateDTO, chapter_service
         return Res(data=None, code=404, message="章节不存在")
     res = chapter_service.update_chapter(chapter_id, dto.dict(exclude_unset=True))
     if res:
-        return Res(data=dto, code=200, message="修改成功")
+        updated_chapter = chapter_service.get_chapter(chapter_id)
+        return Res(data=ChapterResponseDTO(**updated_chapter.__dict__), code=200, message="修改成功")
     else:
         return Res(data=None, code=400, message="修改失败")
 
@@ -184,10 +183,14 @@ async def get_lines(
 ):
     # 判断章节内容是否存在
     chapter = chapter_service.get_chapter(chapter_id)
+    if not chapter:
+        raise HTTPException(status_code=404, detail="章节不存在")
     if chapter.text_content is None:
         return Res(data=None, code=400, message="章节内容不存在")
     try:
         contents = chapter_service.split_text(chapter_id, 1500)
+        if not contents:
+            return Res(data=None, code=400, message="章节内容为空或拆分后无有效段落")
         logging.info("内容划分为 %s 段", len(contents))
     except Exception as e:
         logging.error(f"章节拆分失败: {e}\n{traceback.format_exc()}")
@@ -284,8 +287,14 @@ async def export_llm_prompt(project_id:int,chapter_id: int, chapter_service: Cha
         return Res(data=None, code=500, message="初始化角色/情绪/强度失败")
 
     project = project_service.get_project(project_id)
-    prompt = prompt_service.get_prompt(project.prompt_id) if project else None
+    if not project:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    prompt = prompt_service.get_prompt(project.prompt_id) if project.prompt_id else None
+    if not prompt:
+        raise HTTPException(status_code=404, detail="提示词不存在")
     chapter = chapter_service.get_chapter(chapter_id)
+    if not chapter:
+        raise HTTPException(status_code=404, detail="章节不存在")
     content = chapter.text_content
     res = chapter_service.fill_prompt(prompt.content, roles, emotion_names, strength_names, content)
     # record
@@ -299,7 +308,10 @@ async def import_lines(project_id: int,chapter_id: int,data:str=Form( ...),line_
                        project_service: ProjectService = Depends(get_project_service),
                        chapter_service: ChapterService = Depends(get_chapter_service)):
     # 解析data
-    lines_data = json.loads(data)
+    try:
+        lines_data = json.loads(data)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="无效的 JSON 数据")
     # 转化成List[LineInitDTO]
     emotions = emotion_service.get_all_emotions()
     strengths = strength_service.get_all_strengths()
@@ -312,7 +324,10 @@ async def import_lines(project_id: int,chapter_id: int,data:str=Form( ...),line_
     
     if is_precise_fill == 1:
         # 获取章节内容
-        content = chapter_service.get_chapter(chapter_id).text_content
+        chapter = chapter_service.get_chapter(chapter_id)
+        if not chapter:
+            raise HTTPException(status_code=404, detail="章节不存在")
+        content = chapter.text_content
         if not content:
             return Res(data=None, code=500, message="章节内容为空")
         corrector = TextCorrectorFinal()
@@ -368,6 +383,8 @@ async def add_smart_role_and_voice(project_id: int,chapter_id: int,
                                    role_service: RoleService = Depends(get_role_service)):
     # 获取项目信息
     project = project_service.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="项目不存在")
     # 首先获取项目下所有角色
     roles = role_service.get_all_roles(project_id)
 #     将所有角色未绑定音色的角色提取出来
@@ -385,7 +402,10 @@ async def add_smart_role_and_voice(project_id: int,chapter_id: int,
         for voice in voices
     ]
     # 获取原文内容
-    content = chapter_service.get_chapter(chapter_id).text_content
+    chapter = chapter_service.get_chapter(chapter_id)
+    if not chapter:
+        raise HTTPException(status_code=404, detail="章节不存在")
+    content = chapter.text_content
     res,data = chapter_service.add_smart_role_and_voice(project,content,role_names,voice_names)
     # 将data中的每一个元素转化为RoleBindVoiceDTO
     # data = [RoleBindVoiceDTO(**item) for item in data]

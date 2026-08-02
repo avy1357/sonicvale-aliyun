@@ -250,7 +250,8 @@ const MODEL_LANGUAGE_MAP = {
 
 const volcanoTtsList = ref([])
 const aliyunTtsList = ref([])
-const selectedTtsId = ref(null)
+const selectedTtsId = ref('')  // 显示用, 格式 "volcano-1"
+const currentTtsId = ref(null)  // API 用, 纯数字
 const currentProviderType = ref('volcano')
 const cloneList = ref([])
 
@@ -300,10 +301,10 @@ const loadTtsProviders = async () => {
 }
 
 const loadClones = async () => {
-  if (!selectedTtsId.value) return
-  
+  if (!currentTtsId.value) return
+
   if (currentProviderType.value === 'aliyun') {
-    const res = await queryAliyunVoiceList(selectedTtsId.value, aliyunPage.value - 1, aliyunPageSize.value)
+    const res = await queryAliyunVoiceList(currentTtsId.value, aliyunPage.value - 1, aliyunPageSize.value)
     if (res.code === 200 && res.data) {
       cloneList.value = res.data.voices || []
       aliyunTotal.value = res.data.page_count || 0
@@ -312,7 +313,7 @@ const loadClones = async () => {
       aliyunTotal.value = 0
     }
   } else {
-    const res = await fetchVoiceClones(selectedTtsId.value)
+    const res = await fetchVoiceClones(currentTtsId.value)
     cloneList.value = res.data || []
   }
 }
@@ -320,7 +321,7 @@ const loadClones = async () => {
 const onTtsChange = () => {
   const [type, id] = selectedTtsId.value.split('-')
   currentProviderType.value = type
-  selectedTtsId.value = parseInt(id)
+  currentTtsId.value = parseInt(id)
   aliyunPage.value = 1
   loadClones()
 }
@@ -337,7 +338,7 @@ const refreshList = () => {
 
 const handleSyncAll = async () => {
   try {
-    const res = await syncAliyunVoices(selectedTtsId.value)
+    const res = await syncAliyunVoices(currentTtsId.value)
     if (res.code === 200) {
       ElMessage.success(`同步成功，共同步了 ${res.data} 个音色`)
     } else {
@@ -351,7 +352,7 @@ const handleSyncAll = async () => {
 
 const handleSyncSingle = async (row) => {
   try {
-    const res = await syncAliyunVoiceSingle(selectedTtsId.value, row.voice_id)
+    const res = await syncAliyunVoiceSingle(currentTtsId.value, row.voice_id)
     if (res.code === 200) {
       ElMessage.success(`音色 "${row.voice_id}" 同步成功`)
     } else {
@@ -388,7 +389,7 @@ const submitCreate = async () => {
     }
     try {
       const data = {
-        tts_provider_id: selectedTtsId.value,
+        tts_provider_id: currentTtsId.value,
         target_model: createForm.value.target_model,
         prefix: createForm.value.prefix,
         url: createForm.value.url,
@@ -412,7 +413,7 @@ const submitCreate = async () => {
     try {
       await createVoiceClone({
         ...createForm.value,
-        tts_provider_id: selectedTtsId.value
+        tts_provider_id: currentTtsId.value
       })
       ElMessage.success('创建成功')
       createDialogVisible.value = false
@@ -425,7 +426,7 @@ const submitCreate = async () => {
 
 const viewDetail = async (row) => {
   try {
-    const res = await getAliyunVoiceDetail(selectedTtsId.value, row.voice_id)
+    const res = await getAliyunVoiceDetail(currentTtsId.value, row.voice_id)
     if (res.code === 200) {
       currentDetail.value = res.data
       detailDialogVisible.value = true
@@ -478,7 +479,7 @@ const handleDelete = async (row) => {
     await ElMessageBox.confirm('确认删除该声音复刻记录？', '提示', { type: 'warning' })
     
     if (currentProviderType.value === 'aliyun') {
-      await deleteAliyunVoice(selectedTtsId.value, row.voice_id)
+      await deleteAliyunVoice(currentTtsId.value, row.voice_id)
     } else {
       await deleteVoiceClone(row.id)
     }

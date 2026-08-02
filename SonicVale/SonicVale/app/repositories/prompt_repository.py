@@ -1,7 +1,12 @@
-from typing import List, Optional, Sequence, Any
+from typing import List, Optional, Sequence
 from sqlalchemy.orm import Session
-from sqlalchemy import select, Row, RowMapping
+from sqlalchemy import select
 from app.models.po import PromptPO
+
+# 允许通过 update 更新的字段白名单,防止主键 id、created_at、updated_at 等被覆盖
+UPDATABLE_FIELDS = (
+    "name", "task", "content", "description",
+)
 
 
 class PromptRepository:
@@ -29,7 +34,7 @@ class PromptRepository:
         if not prompt:
             return None
         for key, value in prompt_data.items():
-            if value is not None:  # 只更新不为空的字段
+            if key in UPDATABLE_FIELDS and value is not None:  # 只更新白名单且不为空的字段
                 setattr(prompt, key, value)
         self.db.commit()
         self.db.refresh(prompt)

@@ -1,7 +1,9 @@
 import logging
+import os
+from datetime import datetime
 from typing import Optional, List
-from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.response import Res
@@ -17,15 +19,15 @@ router = APIRouter(prefix="/volcano-voices", tags=["VolcanoVoiceManager"])
 
 class OrderRequest(BaseModel):
     tts_provider_id: int
-    times: int
-    quantity: int
+    times: int = Field(ge=1, description="购买次数,必须 >= 1")
+    quantity: int = Field(ge=1, description="音色数量,必须 >= 1")
     auto_use_coupon: Optional[bool] = None
     coupon_id: Optional[str] = None
 
 
 class RenewRequest(BaseModel):
     tts_provider_id: int
-    times: int
+    times: int = Field(ge=1, description="续费次数,必须 >= 1")
     speaker_ids: Optional[List[str]] = None
     auto_use_coupon: Optional[bool] = None
     coupon_id: Optional[str] = None
@@ -87,6 +89,14 @@ def order_voices(
     req: OrderRequest,
     service: VolcanoVoiceManagerService = Depends(get_voice_manager_service)
 ):
+    # 付费操作前置检查:必须设置 SVC_API_KEY 环境变量,防止未授权调用造成资损
+    if not os.getenv("SVC_API_KEY"):
+        raise HTTPException(status_code=403, detail="付费操作要求设置 SVC_API_KEY 环境变量")
+    # 审计日志:记录操作人、时间、资源ID、金额相关参数(当前无用户体系,operator 标记为 unknown)
+    logger.info(
+        "付费审计 - 下单请求: operator=unknown(无用户体系), time=%s, tts_provider_id=%s, times=%s, quantity=%s, coupon_id=%s",
+        datetime.now().isoformat(), req.tts_provider_id, req.times, req.quantity, req.coupon_id,
+    )
     try:
         result = service.order_voices(
             tts_provider_id=req.tts_provider_id,
@@ -94,6 +104,10 @@ def order_voices(
             quantity=req.quantity,
             auto_use_coupon=req.auto_use_coupon,
             coupon_id=req.coupon_id,
+        )
+        logger.info(
+            "付费审计 - 下单成功: tts_provider_id=%s, times=%s, quantity=%s, result=%s",
+            req.tts_provider_id, req.times, req.quantity, result,
         )
         return Res(data=result, code=200, message="下单成功")
     except ValueError as e:
@@ -110,6 +124,14 @@ def renew_voices(
     req: RenewRequest,
     service: VolcanoVoiceManagerService = Depends(get_voice_manager_service)
 ):
+    # 付费操作前置检查:必须设置 SVC_API_KEY 环境变量,防止未授权调用造成资损
+    if not os.getenv("SVC_API_KEY"):
+        raise HTTPException(status_code=403, detail="付费操作要求设置 SVC_API_KEY 环境变量")
+    # 审计日志:记录操作人、时间、资源ID、金额相关参数(当前无用户体系,operator 标记为 unknown)
+    logger.info(
+        "付费审计 - 续费请求: operator=unknown(无用户体系), time=%s, tts_provider_id=%s, times=%s, speaker_ids=%s, coupon_id=%s",
+        datetime.now().isoformat(), req.tts_provider_id, req.times, req.speaker_ids, req.coupon_id,
+    )
     try:
         result = service.renew_voices(
             tts_provider_id=req.tts_provider_id,
@@ -117,6 +139,10 @@ def renew_voices(
             speaker_ids=req.speaker_ids,
             auto_use_coupon=req.auto_use_coupon,
             coupon_id=req.coupon_id,
+        )
+        logger.info(
+            "付费审计 - 续费成功: tts_provider_id=%s, times=%s, speaker_ids=%s, result=%s",
+            req.tts_provider_id, req.times, req.speaker_ids, result,
         )
         return Res(data=result, code=200, message="续费成功")
     except ValueError as e:

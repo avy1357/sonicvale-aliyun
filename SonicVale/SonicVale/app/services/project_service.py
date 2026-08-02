@@ -2,10 +2,10 @@ import os
 import re
 import logging
 
-from sqlalchemy import Sequence
+from sqlalchemy import Sequence, select, delete
 
 from app.entity.project_entity import ProjectEntity
-from app.models.po import ProjectPO
+from app.models.po import ProjectPO, ChapterPO, RolePO, LinePO
 
 from app.repositories.project_repository import ProjectRepository
 
@@ -66,19 +66,45 @@ class ProjectService:
         - 可以只更新部分字段
         - 检查同名冲突
         """
-        name = data["name"]
-        if self.repository.get_by_name(name) and self.repository.get_by_name(name).id != project_id:
-            return False
+        name = data.get("name")
+        if name:
+            existing = self.repository.get_by_name(name)
+            if existing and existing.id != project_id:
+                return False
         self.repository.update(project_id, data)
         return True
 
     def delete_project(self, project_id: int) -> bool:
         """删除项目
-        - 可以添加业务校验，例如项目下有章节是否允许删除
-        - 后续需要级联删除所有章节内容
+        - 级联删除关联的 chapters(及其 lines) 和 roles
+        - 然后删除项目本身
         """
-        res = self.repository.delete(project_id)
-        return res
+        db = self.repository.db
+        # 先确认项目存在
+        project = self.repository.get_by_id(project_id)
+        if not project:
+            return False
+        # 1. 查询该项目下的所有章节 id
+        chapter_ids = db.execute(
+            select(ChapterPO.id).where(ChapterPO.project_id == project_id)
+        ).scalars().all()
+        # 2. 删除这些章节关联的 lines
+        if chapter_ids:
+            db.execute(
+                delete(LinePO).where(LinePO.chapter_id.in_(chapter_ids))
+            )
+        # 3. 删除 chapters
+        db.execute(
+            delete(ChapterPO).where(ChapterPO.project_id == project_id)
+        )
+        # 4. 删除 roles
+        db.execute(
+            delete(RolePO).where(RolePO.project_id == project_id)
+        )
+        # 5. 删除 project 本身并提交
+        db.delete(project)
+        db.commit()
+        return True
 
 
     def search_projects(self, keyword: str) -> Sequence[ProjectEntity]:

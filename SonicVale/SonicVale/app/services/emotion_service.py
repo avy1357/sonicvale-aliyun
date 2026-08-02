@@ -53,13 +53,15 @@ class EmotionService:
         ]
         return entities
 
-    def update_emotion(self, emotion_id: int, data:dict) -> bool:
+    def update_emotion(self, emotion_id: int, data: dict) -> bool:
         """更新情绪枚举
         - 可以只更新部分字段
         """
         name = data.get("name")
-        if self.repository.get_by_name(name):
-            return False
+        if name:
+            existing = self.repository.get_by_name(name)
+            if existing and existing.id != emotion_id:
+                return False
         self.repository.update(emotion_id, data)
         return True
 

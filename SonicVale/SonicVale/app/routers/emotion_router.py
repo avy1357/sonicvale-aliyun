@@ -9,12 +9,7 @@ from app.db.database import get_db
 from app.dto.emotion_dto import EmotionResponseDTO, EmotionCreateDTO
 from app.entity.emotion_entity import EmotionEntity
 from app.models.po import LinePO
-from app.repositories.line_repository import LineRepository
-from app.repositories.project_repository import ProjectRepository
 from app.repositories.emotion_repository import EmotionRepository
-from app.repositories.tts_provider_repository import TTSProviderRepository
-from app.services.line_service import LineService
-from app.services.project_service import ProjectService
 from app.services.emotion_service import EmotionService
 
 router = APIRouter(prefix="/emotions", tags=["Emotions"])

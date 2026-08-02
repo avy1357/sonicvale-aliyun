@@ -3,7 +3,7 @@ import axios from 'axios'
 
 const service = axios.create({
   baseURL: 'http://127.0.0.1:8200/', // 统一前缀，根据你的后端改
-  timeout: 1000000
+  timeout: 60000
 })
 
 // 请求拦截器

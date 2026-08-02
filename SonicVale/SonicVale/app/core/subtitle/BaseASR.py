@@ -57,8 +57,10 @@ class BaseASR:
             self.file_binary = self.audio_path
         else:
             ext = self.audio_path.split(".")[-1].lower()
-            assert ext in self.SUPPORTED_SOUND_FORMAT, f"Unsupported sound format: {ext}"
-            assert os.path.exists(self.audio_path), f"File not found: {self.audio_path}"
+            if ext not in self.SUPPORTED_SOUND_FORMAT:
+                raise ValueError(f"不支持的音频格式: {ext}, 支持的格式: {self.SUPPORTED_SOUND_FORMAT}")
+            if not os.path.exists(self.audio_path):
+                raise FileNotFoundError(f"音频文件不存在: {self.audio_path}")
             with open(self.audio_path, "rb") as f:
                 self.file_binary = f.read()
         crc32_value = zlib.crc32(self.file_binary) & 0xFFFFFFFF
