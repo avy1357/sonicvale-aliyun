@@ -8,10 +8,13 @@ import soundfile as sf
 import numpy as np
 
 from app.core.config import getFfmpegPath
+from app.core import path_security
 
 
 class AudioProcessor:
     def __init__(self, audio_path: str, keep_format=True, default_sr=44100, default_ch=2):
+        # 校验音频路径不指向系统关键目录
+        path_security.assert_path_not_system_critical(audio_path)
         self.audio_path = audio_path
         self.keep_format = keep_format
         self.default_sr = default_sr
@@ -78,8 +81,14 @@ class AudioProcessor:
 
     def cut(self, start_ms: int, end_ms: int):
         """删除音频区间 [start_ms, end_ms]"""
-        start_sec = start_ms / 1000
-        end_sec = end_ms / 1000
+        start_ms = float(start_ms)
+        end_ms = float(end_ms)
+        if start_ms < 0 or end_ms < 0:
+            raise ValueError("start_ms 和 end_ms 必须非负")
+        start_sec = float(start_ms / 1000)
+        end_sec = float(end_ms / 1000)
+        if start_sec < 0 or end_sec < 0:
+            raise ValueError("start_sec 和 end_sec 必须非负")
 
         cmd = [
             self.ffmpeg_path, "-y", "-i", self.audio_path,
@@ -97,7 +106,13 @@ class AudioProcessor:
 
     def insert_silence(self, insert_ms: int, duration_sec: float):
         """在指定时间点插入静音"""
-        insert_sec = insert_ms / 1000
+        insert_ms = float(insert_ms)
+        duration_sec = float(duration_sec)
+        if insert_ms < 0 or duration_sec < 0:
+            raise ValueError("insert_ms 和 duration_sec 必须非负")
+        insert_sec = float(insert_ms / 1000)
+        if insert_sec < 0:
+            raise ValueError("insert_sec 必须非负")
         cmd = [
             self.ffmpeg_path, "-y",
             "-i", self.audio_path,
@@ -121,6 +136,7 @@ class AudioProcessor:
         - duration_sec > 0: 在末尾添加指定秒数静音
         - duration_sec < 0: 从末尾裁剪指定秒数的内容
         """
+        duration_sec = float(duration_sec)
         if duration_sec == 0:
             return  # 无需处理
 
@@ -142,9 +158,9 @@ class AudioProcessor:
 
         # ---------- 情况2：裁剪末尾 ----------
         else:
-            cut_dur = self.duration + duration_sec  # 因为 duration_sec 为负
+            cut_dur = float(self.duration + duration_sec)  # 因为 duration_sec 为负
             if cut_dur < 0:
-                cut_dur = 0  # 防止全裁掉出错
+                cut_dur = 0.0  # 防止全裁掉出错
             cmd = [
                 self.ffmpeg_path, "-y",
                 "-i", self.audio_path,
@@ -165,6 +181,9 @@ class AudioProcessor:
 
     def change_speed(self, speed: float):
         """变速处理 (0.5~2.0倍)"""
+        speed = float(speed)
+        if speed < 0:
+            raise ValueError("speed 必须非负")
         speed = float(np.clip(speed, 0.5, 2.0))
         cmd = [
             self.ffmpeg_path, "-y", "-i", self.audio_path,
@@ -178,7 +197,10 @@ class AudioProcessor:
 
     def change_volume(self, volume: float):
         """音量调整"""
-        volume = max(0.0, float(volume))
+        volume = float(volume)
+        if volume < 0:
+            raise ValueError("volume 必须非负")
+        volume = max(0.0, volume)
         cmd = [
             self.ffmpeg_path, "-y", "-i", self.audio_path,
             "-af", f"volume={volume}",
@@ -192,9 +214,21 @@ class AudioProcessor:
     def export(self, out_path: str):
         """导出音频到目标路径（带软限幅）"""
         self._normalize(self.audio_path)
-        # 优先用 os.replace(原子操作);跨文件系统时回退到 shutil.move
+        # 优先用 os.replace(原子操作);跨文件系统时改为先 copyfile 再 os.replace
         try:
             os.replace(self.audio_path, out_path)
         except OSError:
-            shutil.move(self.audio_path, out_path)
+            # 跨文件系统:先 copyfile 到目标同目录的临时文件,再 os.replace 原子替换
+            target_dir = os.path.dirname(os.path.abspath(out_path)) or "."
+            fd, tmp_path = tempfile.mkstemp(prefix=".svc_export_", dir=target_dir)
+            os.close(fd)
+            try:
+                shutil.copyfile(self.audio_path, tmp_path)
+                os.replace(tmp_path, out_path)
+            finally:
+                with contextlib.suppress(FileNotFoundError, OSError):
+                    if os.path.exists(tmp_path):
+                        os.remove(tmp_path)
+            with contextlib.suppress(FileNotFoundError, OSError):
+                os.remove(self.audio_path)
         return out_path

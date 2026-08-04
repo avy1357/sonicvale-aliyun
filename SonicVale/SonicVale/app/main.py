@@ -4,6 +4,7 @@ import hmac
 import logging
 import os
 from concurrent.futures import ThreadPoolExecutor
+from urllib.parse import urlparse
 
 import uvicorn
 from fastapi import FastAPI, Depends, HTTPException, Request
@@ -92,16 +93,31 @@ app = FastAPI(
     version="1.0.0",
 )
 # 跨域
-# 允许的前端地址
-origins = [
-    "http://localhost:5173",  # Vue 开发服务器
-    "http://127.0.0.1:5173"   # 有些浏览器可能会用这个
-]
+# 允许的前端地址:支持通过环境变量 SVC_ALLOWED_ORIGINS 配置(逗号分隔)
+# 未配置时使用默认本地开发地址
+_cors_origins_env = os.getenv("SVC_ALLOWED_ORIGINS", "")
+if _cors_origins_env:
+    origins = [o.strip() for o in _cors_origins_env.split(",") if o.strip()]
+else:
+    origins = [
+        "http://localhost:5173",  # Vue 开发服务器
+        "http://127.0.0.1:5173",  # 有些浏览器可能会用这个
+    ]
+
+# CORS 安全校验:allow_credentials=True 与通配符 "*" origin 组合存在安全风险
+# 若同时配置了两者,自动降级为不带 credentials,避免凭据泄露
+_allow_credentials = True
+if "*" in origins:
+    logging.warning(
+        "⚠️  CORS 安全警告:SVC_ALLOWED_ORIGINS 包含通配符 \"*\" 且 allow_credentials=True,"
+        "存在安全风险。已自动降级为 allow_credentials=False。"
+    )
+    _allow_credentials = False
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,        # 允许的源
-    allow_credentials=True,
+    allow_credentials=_allow_credentials,
     allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH"],   # 限定允许的方法
     allow_headers=["Authorization", "Content-Type", "Accept"],   # 限定允许的请求头
 )
@@ -140,7 +156,6 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
             if origin:
                 # Origin 形如 http://127.0.0.1:5173,提取 host
                 try:
-                    from urllib.parse import urlparse
                     host_header = urlparse(origin).hostname.lower() or host_header
                 except Exception:
                     pass
@@ -160,11 +175,9 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         # 已启用 API Key:校验 token
-        # WebSocket：通过 query 参数校验
+        # WebSocket:认证交给 ws_endpoint 内部处理
+        # 中间件不拦截 WebSocket 升级请求,避免 JSONResponse 不适用于 WS 协议
         if path == "/ws":
-            token = request.query_params.get("api_key")
-            if not token or not isinstance(SVC_API_KEY, str) or not hmac.compare_digest(token, SVC_API_KEY):
-                return JSONResponse(status_code=401, content=Res(code=401, message="WebSocket 认证失败", data=None).dict())
             return await call_next(request)
 
         # HTTP：校验 Authorization: Bearer <key>
@@ -235,7 +248,11 @@ from sqlalchemy import text
 
 
 def _add_column(conn, table: str, column: str, col_type: str, default=None, backfill=None):
-    """通用列迁移辅助：检查列是否存在，不存在则添加，可选回填已有行。"""
+    """通用列迁移辅助：检查列是否存在，不存在则添加，可选回填已有行。
+
+    注意:此处 table/column/col_type/default 均为代码内硬编码常量(非用户输入),
+    backfill 通过参数化绑定传递,不存在 SQL 注入风险。
+    """
     result = conn.execute(text(f"PRAGMA table_info({table})"))
     columns = [row[1] for row in result.fetchall()]
     if column in columns:
@@ -297,6 +314,7 @@ def _run_migrations():
 def get_tts_service(db: Session = Depends(get_db)) -> TTSProviderService:
     return TTSProviderService(TTSProviderRepository(db))
 
+# 注意:@app.on_event 已废弃,后续应迁移到 lifespan 上下文管理器
 @app.on_event("startup")
 async def startup_event():
     # 0) 启动时再次确认认证状态(此时 logging 已配置,警告会同时写入日志文件)
@@ -399,6 +417,7 @@ async def startup_event():
     finally:
         db.close()
 
+# 注意:@app.on_event 已废弃,后续应迁移到 lifespan 上下文管理器
 @app.on_event("shutdown")
 async def shutdown_event():
     # 优雅退出
@@ -430,7 +449,7 @@ app.include_router(aliyun_voice_manager_router)
 # =========================
 @app.get("/")
 def read_root():
-    return {"msg": "轻语云配 后端服务运行中！"}
+    return Res(code=200, message="轻语云配 后端服务运行中！", data={"status": "running"})
 
 
 import json
@@ -438,6 +457,12 @@ from fastapi import WebSocket, WebSocketDisconnect
 
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket):
+    # WebSocket 认证:若启用 SVC_API_KEY,校验 query 参数
+    if SVC_API_KEY:
+        token = ws.query_params.get("api_key")
+        if not token or not isinstance(SVC_API_KEY, str) or not hmac.compare_digest(token, SVC_API_KEY):
+            await ws.close(code=1008)  # Policy Violation
+            return
     await manager.connect(ws)
     logging.info("WebSocket 客户端已连接")
     try:

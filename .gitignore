@@ -37,3 +37,19 @@ Thumbs.db
 
 # 调试输出
 SonicVale/SonicVale/app/core/output.wav
+
+# 敏感配置文件
+.env
+.env.*
+config.json
+*.db
+*.sqlite
+*.sqlite3
+*.pem
+*.key
+
+# Trae IDE 配置
+.trae-cn/
+
+# 日志目录
+logs/

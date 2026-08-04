@@ -20,7 +20,7 @@ SQLALCHEMY_DATABASE_URL = f"sqlite:///{os.path.join(config_path, DB_FILENAME)}"
 # SQLite 是文件型数据库, 使用 NullPool 避免多线程连接复用问题
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL,
-    connect_args={"check_same_thread": False},
+    connect_args={"check_same_thread": False, "timeout": 30},
     echo=False,
     poolclass=NullPool,
 )
@@ -30,6 +30,7 @@ engine = create_engine(
 def _enable_sqlite_foreign_keys(dbapi_connection, connection_record):
     cursor = dbapi_connection.cursor()
     cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.execute("PRAGMA journal_mode=WAL")
     cursor.close()
 
 # SessionLocal 用于依赖注入

@@ -51,7 +51,12 @@ pub fn run() {
                     }
                     Err(e) => {
                         log::error!("后端启动失败: {e}");
+                        // 通过 webview eval 调用 alert 向用户提示,避免静默失败让用户无所适从
                         if let Some(window) = app_handle.get_webview_window("main") {
+                            // 使用 serde_json 生成安全的 JS 字符串字面量,避免 XSS/JS 注入
+                            let safe_msg = serde_json::to_string(&format!("后端启动失败: {}", e))
+                                .unwrap_or_else(|_| "\"后端启动失败\"".to_string());
+                            let _ = window.eval(&format!("alert({})", safe_msg));
                             let _ = window.show();
                         }
                     }
@@ -66,7 +71,7 @@ pub fn run() {
                 let state: tauri::State<BackendState> = app_handle.state();
                 if let Some(child) = state.child.lock().unwrap_or_else(|e| e.into_inner()).take() {
                     sidecar::kill_backend_tree(child);
-                }
+                };
             }
         })
         .invoke_handler(tauri::generate_handler![
