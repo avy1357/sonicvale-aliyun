@@ -5,7 +5,7 @@
       <h2 class="page-title">提示词管理</h2>
       <div class="toolbar">
         <el-input v-model="search" placeholder="搜索提示词名称" style="width: 200px; margin-right: 10px" clearable
-          @clear="loadPrompts" @input="loadPrompts" />
+          @clear="loadPrompts" @change="loadPrompts" />
         <el-button type="primary" @click="openDialog()">新增提示词</el-button>
       </div>
     </div>
@@ -161,7 +161,7 @@
 
 <script setup>
 import { ref, onMounted } from "vue"
-import { ElMessage, ElMessageBox } from "element-plus"
+import { ElMessage } from "element-plus"
 import { Edit, Delete } from "@element-plus/icons-vue"
 import { WarningFilled } from "@element-plus/icons-vue"
 
@@ -189,8 +189,18 @@ async function loadPrompts() {
 }
 
 onMounted(async () => {
-  tasks.value = await fetchAllTasks()
-  loadPrompts()
+  try {
+    tasks.value = await fetchAllTasks()
+  } catch (e) {
+    console.error('加载任务列表失败:', e)
+    ElMessage.error('加载任务列表失败')
+  }
+  try {
+    await loadPrompts()
+  } catch (e) {
+    console.error('加载提示词列表失败:', e)
+    ElMessage.error('加载提示词列表失败')
+  }
 })
 
 
@@ -233,21 +243,16 @@ async function savePrompt() {
 }
 
 // 删除提示词
-function removePrompt(row) {
-  ElMessageBox.confirm(`确定要删除提示词「${row.name}」吗？`, "提示", {
-    type: "warning"
-  })
-    .then(async () => {
-      try {
-        await deletePrompt(row.id)
-        ElMessage.success("已删除")
-        await loadPrompts()
-      } catch (err) {
-        ElMessage.error("删除失败")
-        console.error(err)
-      }
-    })
-    .catch(() => { })
+// 注意:模板中已使用 el-popconfirm 进行二次确认,此处直接执行删除逻辑,避免与 ElMessageBox.confirm 重复弹窗
+async function removePrompt(row) {
+  try {
+    await deletePrompt(row.id)
+    ElMessage.success("已删除")
+    await loadPrompts()
+  } catch (err) {
+    ElMessage.error("删除失败")
+    console.error(err)
+  }
 }
 </script>
 

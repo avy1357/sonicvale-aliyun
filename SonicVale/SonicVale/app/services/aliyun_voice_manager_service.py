@@ -144,6 +144,8 @@ class AliyunVoiceManagerService:
         :param db: 数据库会话
         :return: 新增同步的音色数量
         """
+        # 注意:此处直接操作 PO 绕过 Repository,是为了批量同步效率
+        # 后续应考虑将同步逻辑下沉到 Repository 层
         client = self._get_client(tts_provider_id)
         all_voices = client.list_all_voices()
 
@@ -193,6 +195,8 @@ class AliyunVoiceManagerService:
         :param db: 数据库会话
         :return: 同步结果字典 {"status": "created"/"updated", "voice_id": "..."}
         """
+        # 注意:此处直接操作 PO 绕过 Repository,是为了批量同步效率
+        # 后续应考虑将同步逻辑下沉到 Repository 层
         client = self._get_client(tts_provider_id)
         details = client.query_voice(voice_id)
 
@@ -235,6 +239,8 @@ class AliyunVoiceManagerService:
         :param db: 数据库会话
         :return: 删除结果字典
         """
+        # 注意:此处直接操作 PO 绕过 Repository,是为了批量同步效率
+        # 后续应考虑将同步逻辑下沉到 Repository 层
         client = self._get_client(tts_provider_id)
 
         # 先删除云端音色

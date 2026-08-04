@@ -3,7 +3,7 @@ import logging
 import time
 from typing import Optional, Union
 
-from openai import OpenAI, APIConnectionError, APITimeoutError
+from openai import OpenAI, APIConnectionError, APITimeoutError, OpenAIError
 
 from .ASRData import ASRDataSeg
 from .BaseASR import BaseASR
@@ -13,10 +13,12 @@ DEFAULT_MODEL = "whisper-1"
 
 
 class WhisperASR(BaseASR):
-    def __init__(self, audio_path: Union[str, bytes], model: Optional[str] = None, use_cache: bool = False):
+    def __init__(self, audio_path: Union[str, bytes], model: Optional[str] = None, use_cache: bool = False,
+                 base_url: Optional[str] = None, api_key: Optional[str] = None):
         super().__init__(audio_path, use_cache)
-        self.base_url = os.getenv('OPENAI_BASE_URL')
-        self.api_key = os.getenv('OPENAI_API_KEY')
+        # 通过构造参数注入,允许运行时覆盖环境变量,便于测试与多实例配置
+        self.base_url = base_url or os.getenv('OPENAI_BASE_URL')
+        self.api_key = api_key or os.getenv('OPENAI_API_KEY')
         if not self.base_url or not self.api_key:
             raise ValueError("环境变量 OPENAI_BASE_URL 和 OPENAI_API_KEY 必须设置")
         self.model = model or DEFAULT_MODEL
@@ -49,8 +51,14 @@ class WhisperASR(BaseASR):
                     prompt="",
                     language="zh"
                 )
-                return completion.to_dict()
-            except (APIConnectionError, APITimeoutError, OSError) as e:
+                # 防御性检查:确保响应可转换为 dict 且包含 segments 字段
+                if not hasattr(completion, 'to_dict'):
+                    raise ValueError("Whisper 响应格式异常,缺少 to_dict 方法")
+                result = completion.to_dict()
+                if 'segments' not in result:
+                    raise ValueError("Whisper 响应格式异常，缺少 segments 字段")
+                return result
+            except (APIConnectionError, APITimeoutError, OpenAIError, OSError) as e:
                 if attempt < max_retries:
                     logging.warning("Whisper ASR 提交失败,第 %d 次重试: %s", attempt + 1, e)
                     time.sleep(1)

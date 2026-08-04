@@ -15,6 +15,7 @@ import threading
 from cryptography.fernet import Fernet, InvalidToken
 
 from app.core.config import getConfigPath
+from app.core.exceptions import DecryptError
 
 logger = logging.getLogger(__name__)
 
@@ -48,18 +49,28 @@ def _get_fernet() -> Fernet:
         if _fernet is not None:
             return _fernet
 
-        if os.path.exists(_KEY_FILE):
+        # 直接尝试打开读取,避免 os.path.exists 与 open 之间的 TOCTOU 竞态
+        try:
             with open(_KEY_FILE, "rb") as f:
                 key = f.read().strip()
+            _fernet = Fernet(key)
+            return _fernet
+        except FileNotFoundError:
+            # 文件不存在,继续生成新密钥
+            pass
+        except (ValueError, base64.binascii.Error):
+            # 主密钥文件损坏,先备份旧文件再重新生成,以 ERROR 级别记录
+            logger.error("主密钥文件损坏, 备份后重新生成: %s", _KEY_FILE)
+            backup_path = _KEY_FILE + ".corrupt.bak"
             try:
-                _fernet = Fernet(key)
-                return _fernet
-            except (ValueError, base64.binascii.Error):
-                logger.warning("主密钥文件损坏, 重新生成: %s", _KEY_FILE)
+                if os.path.exists(_KEY_FILE):
+                    os.replace(_KEY_FILE, backup_path)
+            except OSError as backup_err:
+                logger.error("备份损坏的主密钥文件失败: %s", backup_err)
 
         # 生成新密钥
         key = Fernet.generate_key()
-        # 以仅属主可读写权限保存 (0600)
+        # 以仅属主可读写权限保存 (0600, Unix 下生效; Windows 下无效但保留设置)
         fd = os.open(_KEY_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         try:
             os.write(fd, key)
@@ -96,8 +107,9 @@ def _decrypt_value(cipher: str) -> str:
         token = cipher[4:].encode("ascii")
         return _get_fernet().decrypt(token).decode("utf-8")
     except (InvalidToken, ValueError) as e:
-        logger.warning("解密失败, 返回原值: %s", e)
-        return cipher
+        # 解密失败抛出 DecryptError, 避免静默返回原密文造成数据不一致
+        logger.error("解密失败: %s", e)
+        raise DecryptError(f"解密失败: {e}") from e
 
 
 # ---------------------------------------------------------------------------

@@ -34,6 +34,10 @@ class TTSProviderRepository:
     def get_by_id(self, id: int) -> Optional[TTSProviderPO]:
         """根据 ID 查询tts供应商"""
         po = self.db.get(TTSProviderPO, id)
+        if po is None:
+            return None
+        # 关键：解密前先 expunge,避免明文回写数据库
+        self.db.expunge(po)
         return decrypt_provider_fields(po, TTS_PROVIDER_SECRET_FIELDS)
 
     def get_all(self) -> Sequence[TTSProviderPO]:
@@ -52,6 +56,8 @@ class TTSProviderRepository:
         self.db.add(data)
         self.db.commit()
         self.db.refresh(data)
+        # 关键：解密前先 expunge,避免明文回写数据库
+        self.db.expunge(data)
         # 读出后解密,返回给上层明文
         decrypt_provider_fields(data, TTS_PROVIDER_SECRET_FIELDS)
         return data
@@ -71,6 +77,8 @@ class TTSProviderRepository:
 
         self.db.commit()
         self.db.refresh(tts_provider)
+        # 关键：解密前先 expunge,避免明文回写数据库
+        self.db.expunge(tts_provider)
         decrypt_provider_fields(tts_provider, TTS_PROVIDER_SECRET_FIELDS)
         return tts_provider
 
@@ -86,6 +94,10 @@ class TTSProviderRepository:
     def get_by_name(self, name: str) -> Optional[TTSProviderPO]:
         """根据名称查找tts供应商信息"""
         po = self.db.execute(select(TTSProviderPO).where(TTSProviderPO.name == name)).scalars().first()
+        if po is None:
+            return None
+        # 关键：解密前先 expunge,避免明文回写数据库
+        self.db.expunge(po)
         return decrypt_provider_fields(po, TTS_PROVIDER_SECRET_FIELDS)
 
 

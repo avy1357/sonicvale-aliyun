@@ -14,7 +14,7 @@ from openpyxl import Workbook
 
 from app.core.audio_engin import AudioProcessor
 from app.core.config import getConfigPath, getFfmpegPath
-from app.core.path_security import validate_path_within_root
+from app.core.path_security import validate_path_within_root, assert_path_not_system_critical
 from app.core.subtitle import subtitle_engine
 from app.core.tts_engine import TTSEngine
 from app.core.volcano_tts_client import VolcanoTTSClient
@@ -55,7 +55,9 @@ def _get_file_lock(path: str) -> threading.Lock:
         if lock is None:
             # 清理未被持有的锁,防止字典无限增长
             if len(_file_locks) > _FILE_LOCKS_MAX_SIZE:
-                _file_locks.clear()
+                for k in list(_file_locks.keys()):
+                    if not _file_locks[k].locked():
+                        del _file_locks[k]
             lock = threading.Lock()
             _file_locks[key] = lock
         return lock
@@ -112,8 +114,14 @@ class LineService:
         # 还要把audio_path删除
         po = self.repository.get_by_id(line_id)
         if po and po.audio_path:
-            with contextlib.suppress(FileNotFoundError):
-                os.remove(po.audio_path)
+            # 安全校验:删除前确认路径在允许的项目根目录下
+            try:
+                safe_path = validate_path_within_root(po.audio_path, getConfigPath())
+                assert_path_not_system_critical(safe_path)
+                with contextlib.suppress(FileNotFoundError):
+                    os.remove(safe_path)
+            except Exception as e:
+                logging.warning("删除音频文件失败(跳过,继续删除 DB 记录): %s", e)
         res = self.repository.delete(line_id)
         return res
     # 删除章节下所有台词
@@ -123,12 +131,18 @@ class LineService:
         # 要移除所有的音频资源
         for line in self.get_all_lines(chapter_id):
             if line and line.audio_path:
-                with contextlib.suppress(FileNotFoundError):
-                    os.remove(line.audio_path)
+                # 安全校验:删除前确认路径在允许的项目根目录下
+                try:
+                    safe_path = validate_path_within_root(line.audio_path, getConfigPath())
+                    assert_path_not_system_critical(safe_path)
+                    with contextlib.suppress(FileNotFoundError):
+                        os.remove(safe_path)
+                except Exception as e:
+                    logging.warning("删除音频文件失败(跳过,继续删除 DB 记录): %s", e)
         return self.repository.delete_all_by_chapter_id(chapter_id)
 
     # 单个台词新增
-    def add_new_line(self, line: LineCreateDTO,project_id,chapter_id,index,emotions_dict, strengths_dict,audio_path):
+    def add_new_line(self, line: LineCreateDTO,project_id:int,chapter_id:int,index:int,emotions_dict, strengths_dict,audio_path):
         # 使用 flush 代替 commit,由 update_init_lines 统一 commit,保证批量新增的原子性
         db = self.repository.db
     #     先判断角色是否存在
@@ -155,7 +169,7 @@ class LineService:
         po.audio_path = res_path
 
 
-    def update_init_lines(self, lines: list, project_id: object, chapter_id: object,emotions_dict, strengths_dict,audio_path) -> None:
+    def update_init_lines(self, lines: list, project_id: int, chapter_id: int,emotions_dict, strengths_dict,audio_path) -> None:
         # 循环内用 flush,循环结束后统一 commit,避免逐条 commit 的性能与原子性问题
         db = self.repository.db
         try:
@@ -180,6 +194,17 @@ class LineService:
     # 生成音频（服务器和本地两种方式）
 
     def generate_audio(self, reference_path: str, tts_provider_id, content, emo_text: str, emo_vector: list[float], save_path=None, voice_name: str = None, instruction: str = None):
+        # 安全校验:校验参考音频与输出路径
+        try:
+            root = getConfigPath()
+            if reference_path:
+                reference_path = validate_path_within_root(reference_path, root)
+            if save_path:
+                save_path = validate_path_within_root(save_path, root)
+                assert_path_not_system_critical(save_path)
+        except Exception as e:
+            raise ValueError(f"音频路径校验失败: {e}")
+
         tts_provider = self.tts_provider_repository.get_by_id(tts_provider_id)
         if tts_provider is None:
             raise Exception(f"TTS服务提供商不存在（ID: {tts_provider_id}）")
@@ -218,7 +243,7 @@ class LineService:
                 if not os.path.isfile(reference_path):
                     raise Exception(f"参考音频文件不存在: {reference_path}")
                 
-                upload_result = tts_engine.upload_audio(reference_path, reference_path)
+                upload_result = tts_engine.upload_audio(reference_path, full_path=reference_path)
                 if upload_result.get('code') and upload_result.get('code') != 200:
                     logging.error("上传参考音频失败: %s", upload_result)
                     raise Exception("上传参考音频失败, 请稍后重试")
@@ -296,6 +321,8 @@ class LineService:
 
     # 将角色role_id下所有台词的role_id都置位空
     def clear_role_id(self, role_id: int):
+        # 注意:此处循环逐条 update 在大数据量下性能较差
+        # 后续可考虑改为 repository 批量 update 以提升性能
         # 先获取role_id下所有台词实体
         pos = self.repository.get_lines_by_role_id(role_id)
         for po in pos:
@@ -306,9 +333,11 @@ class LineService:
         self.repository.batch_update_line_order(line_orders)
         return True
 
-    def update_audio_path(self, id, dto) -> bool:
+    def update_audio_path(self, line_id, dto) -> bool:
         try:
-            po = self.get_line(id)
+            po = self.get_line(line_id)
+            if po is None:
+                return False  # 台词记录不存在
             old_path = po.audio_path
             new_path = dto.audio_path
 
@@ -336,7 +365,7 @@ class LineService:
             shutil.move(old_path, new_path)
 
             # 更新数据库
-            self.update_line(id, {"audio_path": new_path})
+            self.update_line(line_id, {"audio_path": new_path})
             return True
 
         except Exception as e:
@@ -360,6 +389,15 @@ class LineService:
         输出 WAV PCM16。
         如果 keep_format=True，则保持输入文件的 sr/ch 不变。
         """
+        # 安全校验:校验输入与输出路径
+        try:
+            root = getConfigPath()
+            audio_path = validate_path_within_root(audio_path, root)
+            if out_path:
+                out_path = validate_path_within_root(out_path, root)
+        except Exception as e:
+            raise ValueError(f"音频路径校验失败: {e}")
+
         ffmpeg_path = getFfmpegPath()
         if not os.path.exists(audio_path):
             raise FileNotFoundError(audio_path)
@@ -370,8 +408,8 @@ class LineService:
         target_ch = info.channels if keep_format else default_ch
 
         # 参数规整
-        speed = float(np.clip(speed or 1.0, 0.5, 2.0))
-        volume = 1.0 if volume is None else max(0.0, float(volume))
+        speed = float(np.clip(1.0 if speed is None else speed, 0.5, 2.0))
+        volume = 1.0 if volume is None else min(max(0.0, float(volume)), 10.0)
 
         # 输出路径
         target_path = out_path or audio_path
@@ -419,6 +457,8 @@ class LineService:
 
 
     # 删除区间进行拼接
+    # 注意:本方法逻辑较长(涵盖无剪切/拼接/末尾静音/末尾裁剪等多种组合),
+    # 后续可考虑拆分为多个子方法以提升可读性
     def process_audio_ffmpeg_cut(
             self,
             audio_path: str,
@@ -438,6 +478,15 @@ class LineService:
         输出 WAV PCM16。
         可在末尾附加 silence_sec 秒静音。
         """
+        # 安全校验:校验输入与输出路径
+        try:
+            root = getConfigPath()
+            audio_path = validate_path_within_root(audio_path, root)
+            if out_path:
+                out_path = validate_path_within_root(out_path, root)
+        except Exception as e:
+            raise ValueError(f"音频路径校验失败: {e}")
+
         ffmpeg_path = getFfmpegPath()
         if not os.path.exists(audio_path):
             raise FileNotFoundError(audio_path)
@@ -448,8 +497,8 @@ class LineService:
         target_ch = info.channels if keep_format else default_ch
 
         # 参数规整
-        speed = float(np.clip(speed or 1.0, 0.5, 2.0))
-        volume = 1.0 if volume is None else max(0.0, float(volume))
+        speed = float(np.clip(1.0 if speed is None else speed, 0.5, 2.0))
+        volume = 1.0 if volume is None else min(max(0.0, float(volume)), 10.0)
 
         # 输出路径
         target_path = out_path or audio_path
@@ -591,7 +640,13 @@ class LineService:
         #     audio_file =self.process_audio_ffmpeg(line.audio_path, dto.speed, dto.volume,dto.start_ms,dto.end_ms)
         # 删除拼接
         #     audio_file = self.process_audio_ffmpeg_cut(line.audio_path, dto.speed, dto.volume, dto.start_ms, dto.end_ms, dto.tail_silence_sec,dto.current_ms)
-            with AudioProcessor(line.audio_path) as processor:
+            # 安全校验:校验音频路径
+            try:
+                safe_path = validate_path_within_root(line.audio_path, getConfigPath())
+            except Exception as e:
+                logging.warning("[process_audio] 音频路径校验失败: %s", e)
+                return False
+            with AudioProcessor(safe_path) as processor:
                 start_ms = dto.start_ms
                 end_ms = dto.end_ms
                 speed = dto.speed
@@ -614,9 +669,9 @@ class LineService:
                     processor.append_silence(silence_sec)
 
                 # ---------- (4) 音量 + 变速 ----------
-                if speed != 1.0:
+                if speed is not None and speed != 1.0:
                     processor.change_speed(speed)
-                if volume != 1.0:
+                if volume is not None and volume != 1.0:
                     processor.change_volume(volume)
             logging.info("音频处理完成")
             return True

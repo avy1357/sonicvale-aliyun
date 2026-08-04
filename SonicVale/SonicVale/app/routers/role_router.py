@@ -45,18 +45,18 @@ def create_role(dto: RoleCreateDTO, role_service: RoleService = Depends(get_role
     """创建角色"""
     try:
         # DTO → Entity
-        entity = RoleEntity(**dto.__dict__)
+        entity = RoleEntity(**dto.model_dump())
         # 判断project_id是否存在
         project = project_service.get_project(dto.project_id)
         if project is None:
             return Res(data=None, code=400, message=f"项目 '{dto.project_id}' 不存在")
         # 调用 Service 创建项目（返回 True/False）
-        entityRes = role_service.create_role(entity)
+        entity_res = role_service.create_role(entity)
 
         # 返回统一 Response
-        if entityRes is not None:
+        if entity_res is not None:
             # 创建成功，可以返回 DTO 或者部分字段
-            res = RoleResponseDTO(**entityRes.__dict__)
+            res = RoleResponseDTO(**entity_res.__dict__)
             return Res(data=res, code=200, message="创建成功")
         else:
             return Res(data=None, code=400, message=f"角色 '{entity.name}' 已存在")
@@ -94,7 +94,7 @@ def update_role(role_id: int, dto: RoleCreateDTO, role_service: RoleService = De
     role = role_service.get_role(role_id)
     if role is None:
         return Res(data=None, code=404, message="角色不存在")
-    res = role_service.update_role(role_id, dto.dict(exclude_unset=True, exclude={"project_id"}))
+    res = role_service.update_role(role_id, dto.model_dump(exclude_unset=True, exclude={"project_id"}))
     if res:
         updated_role = role_service.get_role(role_id)
         return Res(data=RoleResponseDTO(**updated_role.__dict__), code=200, message="修改成功")

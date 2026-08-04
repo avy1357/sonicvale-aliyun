@@ -34,21 +34,36 @@ def create_prompt(dto: PromptCreateDTO, service: PromptService = Depends(get_ser
     """
     try:
         # DTO → Entity
-        entity = PromptEntity(**dto.__dict__)
+        entity = PromptEntity(**dto.model_dump())
 
         # 调用 Service 创建提示词（返回 True/False）
-        entityRes = service.create_prompt(entity)
+        entity_res = service.create_prompt(entity)
 
         # 返回统一 Response
-        if entityRes is not None:
+        if entity_res is not None:
             # 创建成功，可以返回 DTO 或者部分字段
-            res = PromptResponseDTO(**entityRes.__dict__)
+            res = PromptResponseDTO(**entity_res.__dict__)
             return Res(data=res, code=200, message="创建成功")
         else:
             return Res(data=None, code=400, message=f"创建失败,可能是不存在该任务或提示词数据不完整")
 
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+# 获取所有的任务列表
+# 注意:静态路由 /tasks/all 与 /tasks/by 必须定义在动态路由 /{prompt_id} 之前,
+# 否则会被 /{prompt_id} 匹配,导致 tasks 被当作 prompt_id 解析失败
+@router.get("/tasks/all", response_model=Res[List[str]])
+def get_all_tasks(service: PromptService = Depends(get_service)):
+    tasks = service.get_all_tasks()
+    return Res(data=tasks, code=200, message="查询成功")
+
+# 根据任务列表获取对应的提示词
+@router.get("/tasks/by", response_model=Res[List[PromptResponseDTO]])
+def get_prompt_by_task(task: TaskEnum, service: PromptService = Depends(get_service)):
+    prompts = service.get_prompt_by_task(task.value)  # 取枚举的值
+    dtos = [PromptResponseDTO(**e.__dict__) for e in prompts]
+    return Res(data=dtos, code=200, message="查询成功")
 
 # 按id查找
 @router.get("/{prompt_id}", response_model=Res[PromptResponseDTO],
@@ -72,7 +87,7 @@ def get_all_prompts(service: PromptService = Depends(get_service)):
 
 
 # ------------------- 修改提示词 -------------------
-@router.put("/{prompt_id}", response_model=Res[PromptCreateDTO],
+@router.put("/{prompt_id}", response_model=Res[PromptResponseDTO],
             summary="修改提示词",
             description="根据提示词ID修改提示词信息")
 def update_prompt(prompt_id: int, dto: PromptCreateDTO, service: PromptService = Depends(get_service)):
@@ -82,7 +97,7 @@ def update_prompt(prompt_id: int, dto: PromptCreateDTO, service: PromptService =
     if not prompt:
         return Res(data=None, code=400, message="提示词不存在")
 
-    success = service.update_prompt(prompt_id,dto.dict(exclude_unset=True))
+    success = service.update_prompt(prompt_id,dto.model_dump(exclude_unset=True))
     if success:
         # 返回更新后的实体,而非入参 dto
         updated = service.get_prompt(prompt_id)
@@ -102,20 +117,6 @@ def delete_prompt(prompt_id: int, service: PromptService = Depends(get_service))
         return Res(data=None, code=200, message="删除成功")
     else:
         return Res(data=None, code=400, message="删除失败或提示词不存在")
-
-# 获取所有的任务列表
-@router.get("/tasks/all", response_model=Res[List[str]])
-def get_all_tasks(service: PromptService = Depends(get_service)):
-    tasks = service.get_all_tasks()
-    return Res(data=tasks, code=200, message="查询成功")
-
-# 根据任务列表获取对应的提示词
-@router.get("/tasks/by", response_model=Res[List[PromptResponseDTO]])
-def get_prompt_by_task(task: TaskEnum, service: PromptService = Depends(get_service)):
-    prompts = service.get_prompt_by_task(task.value)  # 取枚举的值
-    dtos = [PromptResponseDTO(**e.__dict__) for e in prompts]
-    return Res(data=dtos, code=200, message="查询成功")
-
 
 
 # 测试供应商

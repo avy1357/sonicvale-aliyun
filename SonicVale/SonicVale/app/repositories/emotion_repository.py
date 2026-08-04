@@ -14,9 +14,9 @@ class EmotionRepository:
     def __init__(self, db: Session):
         self.db = db
 
-    def get_by_id(self, id: int) -> Optional[EmotionPO]:
+    def get_by_id(self, record_id: int) -> Optional[EmotionPO]:
         """通过id获取情绪"""
-        return self.db.query(EmotionPO).filter(EmotionPO.id == id).first()
+        return self.db.query(EmotionPO).filter(EmotionPO.id == record_id).first()
 
     def get_by_name(self, name: str) -> Optional[EmotionPO]:
         """通过名称获取情绪"""
@@ -34,9 +34,9 @@ class EmotionRepository:
         self.db.refresh(emotion)
         return emotion
 
-    def update(self, id: int, data: dict) -> Optional[EmotionPO]:
+    def update(self, record_id: int, data: dict) -> Optional[EmotionPO]:
         """更新情绪"""
-        emotion = self.get_by_id(id)
+        emotion = self.get_by_id(record_id)
         if not emotion:
             return None
         for key, value in data.items():
@@ -47,9 +47,9 @@ class EmotionRepository:
         self.db.refresh(emotion)
         return emotion
 
-    def delete(self, id: int) -> bool:
+    def delete(self, record_id: int) -> bool:
         """删除情绪"""
-        emotion = self.get_by_id(id)
+        emotion = self.get_by_id(record_id)
         if not emotion:
             return False
         self.db.delete(emotion)

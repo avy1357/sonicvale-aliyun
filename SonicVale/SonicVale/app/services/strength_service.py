@@ -1,7 +1,9 @@
 from typing import Sequence
 
+from sqlalchemy import select
+
 from app.entity.strength_entity import StrengthEntity
-from app.models.po import StrengthPO
+from app.models.po import StrengthPO, LinePO
 from app.repositories.strength_repository import StrengthRepository
 
 
@@ -59,14 +61,25 @@ class StrengthService:
         """
 
         name = data.get("name")
-        if name and self.repository.get_by_name(name):
-            return False
+        if name:
+            existing = self.repository.get_by_name(name)
+            if existing and existing.id != strength_id:
+                return False
         self.repository.update(strength_id, data)
         return True
 
     def delete_strength(self, strength_id: int) -> bool:
         """删除情绪强弱枚举
+        - 删除前检查是否被台词引用,被引用则禁止删除
+        - 引用检查与删除在同一 session/事务中,避免 TOCTOU
         """
+        db = self.repository.db
+        # 检查是否被台词引用
+        referenced = db.execute(
+            select(LinePO.id).where(LinePO.strength_id == strength_id).limit(1)
+        ).first()
+        if referenced:
+            return False
         res = self.repository.delete(strength_id)
         return res
 

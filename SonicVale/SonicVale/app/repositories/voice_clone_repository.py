@@ -14,9 +14,9 @@ class VoiceCloneRepository:
     def __init__(self, db: Session):
         self.db = db
 
-    def get_by_id(self, id: int) -> Optional[VoiceClonePO]:
+    def get_by_id(self, record_id: int) -> Optional[VoiceClonePO]:
         """根据 ID 查询声音复刻记录"""
-        return self.db.get(VoiceClonePO, id)
+        return self.db.get(VoiceClonePO, record_id)
 
     def get_by_speaker_id(self, speaker_id: str) -> Optional[VoiceClonePO]:
         """根据 speaker_id 查询声音复刻记录"""

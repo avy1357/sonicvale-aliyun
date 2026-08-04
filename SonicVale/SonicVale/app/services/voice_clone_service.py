@@ -1,4 +1,6 @@
+import contextlib
 import logging
+import os
 from typing import List, Optional
 
 from app.core.volcano_voice_clone_client import VolcanoVoiceCloneClient
@@ -183,6 +185,17 @@ class VoiceCloneService:
 
     def delete_voice_clone(self, clone_id: int) -> bool:
         """删除声音复刻记录"""
+        clone = self.repository.get_by_id(clone_id)
+        if clone and clone.reference_path:
+            try:
+                from app.core.path_security import validate_path_within_root, assert_path_not_system_critical
+                from app.core.config import getConfigPath
+                safe_path = validate_path_within_root(clone.reference_path, getConfigPath())
+                assert_path_not_system_critical(safe_path)
+                with contextlib.suppress(FileNotFoundError):
+                    os.remove(safe_path)
+            except Exception as e:
+                logging.warning("删除参考音频文件失败(跳过): %s", e)
         return self.repository.delete(clone_id)
 
     def update_voice_clone(self, clone_id: int, update_data: dict) -> Optional[VoiceCloneEntity]:

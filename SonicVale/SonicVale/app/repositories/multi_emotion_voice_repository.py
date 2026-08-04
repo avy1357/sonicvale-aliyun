@@ -12,9 +12,9 @@ class MultiEmotionVoiceRepository:
     def __init__(self, db: Session):
         self.db = db
 
-    def get_by_id(self, id: int) -> Optional[MultiEmotionVoicePO]:
+    def get_by_id(self, record_id: int) -> Optional[MultiEmotionVoicePO]:
         """通过id获取多情绪音色"""
-        return self.db.query(MultiEmotionVoicePO).filter(MultiEmotionVoicePO.id == id).first()
+        return self.db.query(MultiEmotionVoicePO).filter(MultiEmotionVoicePO.id == record_id).first()
 
     # 根据voice_id,emotion_id,strength_id获取多情绪音色
     def get_by_voice_id_emotion_id_strength_id(self, voice_id: int, emotion_id: int, strength_id: int) -> Optional[MultiEmotionVoicePO]:
@@ -39,22 +39,22 @@ class MultiEmotionVoiceRepository:
         self.db.refresh(multi_emotion_voice)
         return multi_emotion_voice
 
-    def update(self, id: int, data: dict) -> Optional[MultiEmotionVoicePO]:
+    def update(self, record_id: int, data: dict) -> Optional[MultiEmotionVoicePO]:
         """更新多情绪音色(仅允许白名单字段,防止主键/外键被覆盖)"""
-        multi_emotion_voice = self.get_by_id(id)
+        multi_emotion_voice = self.get_by_id(record_id)
         if not multi_emotion_voice:
             return None
         for key, value in data.items():
             # 只更新白名单字段,过滤 id、voice_id、emotion_id、strength_id、created_at、updated_at 等
-            if value is not None and key in self.UPDATABLE_FIELDS:
+            if key in self.UPDATABLE_FIELDS:
                 setattr(multi_emotion_voice, key, value)
         self.db.commit()
         self.db.refresh(multi_emotion_voice)
         return multi_emotion_voice
 
-    def delete(self, id: int) -> bool:
+    def delete(self, record_id: int) -> bool:
         """删除多情绪音色"""
-        multi_emotion_voice = self.get_by_id(id)
+        multi_emotion_voice = self.get_by_id(record_id)
         if not multi_emotion_voice:
             return False
         self.db.delete(multi_emotion_voice)

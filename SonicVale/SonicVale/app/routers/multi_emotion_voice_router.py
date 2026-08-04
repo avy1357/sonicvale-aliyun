@@ -76,7 +76,7 @@ def create_multi_emotion_voice(dto: MultiEmotionVoiceCreateDTO, multi_emotion_vo
     if voice is None or emotion is None or strength is None:
         return Res(data=None, code=400, message="创建失败,音色或者情绪枚举或者情绪强弱枚举不存在，不能创建多情绪音色")
     # DTO → Entity
-    entity = MultiEmotionVoiceEntity(**dto.__dict__)
+    entity = MultiEmotionVoiceEntity(**dto.model_dump())
     entity = multi_emotion_voice_service.create_multi_emotion_voice(entity)
     if entity is None:
         return Res(data=None, code=400, message="创建失败,已存在多情绪音色")
@@ -86,21 +86,21 @@ def create_multi_emotion_voice(dto: MultiEmotionVoiceCreateDTO, multi_emotion_vo
 
 
 # 修改
-@router.put("/{multi_emotion_voice_id}", response_model=Res[MultiEmotionVoiceCreateDTO],summary="修改多情绪音色", description="修改多情绪音色")
+@router.put("/{multi_emotion_voice_id}", response_model=Res[MultiEmotionVoiceResponseDTO],summary="修改多情绪音色", description="修改多情绪音色")
 def update_multi_emotion_voice(multi_emotion_voice_id: int, dto: MultiEmotionVoiceCreateDTO, multi_emotion_voice_service: MultiEmotionVoiceService = Depends(get_multi_emotion_voice_service)):
     """修改多音色"""
     try:
         entity = multi_emotion_voice_service.get_multi_emotion_voice_by_id(multi_emotion_voice_id)
         if entity is None:
             return Res(data=None, code=404, message="多音色不存在")
-        res = multi_emotion_voice_service.update_multi_emotion_voice(multi_emotion_voice_id, dto.dict(exclude_unset=True))
+        res = multi_emotion_voice_service.update_multi_emotion_voice(multi_emotion_voice_id, dto.model_dump(exclude_unset=True))
         if res is None:
             return Res(data=None, code=400, message="修改失败")
         else:
             # 重新查询返回最新实体,避免回显旧数据
             updated = multi_emotion_voice_service.get_multi_emotion_voice_by_id(multi_emotion_voice_id)
-            entityRes = MultiEmotionVoiceResponseDTO(**updated.__dict__)
-            return Res(data=entityRes, code=200, message="修改成功")
+            entity_res = MultiEmotionVoiceResponseDTO(**updated.__dict__)
+            return Res(data=entity_res, code=200, message="修改成功")
     except Exception:
         logger.exception("修改多情绪音色失败")
         return Res(data=None, code=500, message="修改失败:服务器内部错误")

@@ -81,6 +81,9 @@ async def tts_worker(app: FastAPI):
             if role is None:
                 raise ValueError(f"角色不存在(id={dto.role_id})")
             voice = voice_service.get_voice(role.default_voice_id)
+            # 校验音色存在,避免后续 AttributeError
+            if voice is None:
+                raise ValueError(f"音色不存在(id={role.default_voice_id})")
             reference_path = voice.reference_path
 
             # 语音风格指令：台词级覆盖角色级
@@ -103,6 +106,9 @@ async def tts_worker(app: FastAPI):
             emo_vector = emotion_text_to_vector(emotion.name, strength.name)
 
             project = project_service.get_project(project_id)
+            # 校验项目存在,避免后续 AttributeError
+            if project is None:
+                raise ValueError(f"项目不存在(id={project_id})")
 
             loop = asyncio.get_running_loop()
             await asyncio.wait_for(
@@ -124,18 +130,20 @@ async def tts_worker(app: FastAPI):
             )
 
             line_service.update_line(dto.id, {"status": "done"})
+            # 在循环开始时计算一次 progress 快照,避免多次 q.qsize() 调用结果不一致
+            progress_snapshot = q.qsize()
             await manager.broadcast({
                 "event": "line_update",
                 "line_id": dto.id,
                 "status": "done",
-                "progress":  q.qsize(),
+                "progress": progress_snapshot,
                 "meta": "生成完成",
                 "audio_path": dto.audio_path
             })
             # 发送给前端，队列中剩余的数量
             await manager.broadcast({
                 "event": "tts_queue_rest",
-                "queue_rest": q.qsize(),
+                "queue_rest": progress_snapshot,
                 "project_id": project_id
             })
 
@@ -146,11 +154,13 @@ async def tts_worker(app: FastAPI):
                     line_service.update_line(dto.id, {"status": "failed"})
                 except Exception as inner:
                     logging.warning("[tts_worker] 更新台词状态失败: %s", inner)
+            # 在异常处理时计算 progress 快照,避免多次 q.qsize() 调用结果不一致
+            progress_snapshot = q.qsize()
             await manager.broadcast({
                 "event": "line_update",
                 "line_id": dto.id,
                 "status": "failed",
-                "progress":  q.qsize(),
+                "progress": progress_snapshot,
                 "meta": f"超时(>{TTS_TIMEOUT_SECONDS}s)"
             })
 
@@ -161,12 +171,15 @@ async def tts_worker(app: FastAPI):
                     line_service.update_line(dto.id, {"status": "failed"})
                 except Exception as inner:
                     logging.warning("[tts_worker] 更新台词状态失败: %s", inner)
+            # 在异常处理时计算 progress 快照,避免多次 q.qsize() 调用结果不一致
+            progress_snapshot = q.qsize()
+            # 异常信息不直接广播,只显示通用错误,避免泄露内部细节
             await manager.broadcast({
                 "event": "line_update",
                 "line_id": dto.id,
                 "status": "failed",
-                "progress":  q.qsize(),
-                "meta": f"失败: {e}"
+                "progress": progress_snapshot,
+                "meta": "生成失败,请查看日志"
             })
 
         finally:

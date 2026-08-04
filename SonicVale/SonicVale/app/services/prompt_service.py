@@ -17,7 +17,7 @@ class PromptService:
         self.repository = repository
 
     # 拆分台词prompt验证
-    def validate_prompt_with_DUBBING(self, content: str):
+    def validate_prompt_with_dubbing(self, content: str):
         # content 为 None/空时直接返回 False,避免 in 操作符对 None 报错
         if not content:
             return False
@@ -56,8 +56,8 @@ class PromptService:
 
         # 验证拆分台词的提示词
         if entity.task == TaskEnum.DUBBING:
-            isValid = self.validate_prompt_with_DUBBING(entity.content)
-            if not isValid:
+            is_valid = self.validate_prompt_with_dubbing(entity.content)
+            if not is_valid:
                 return None
 
         # 手动将entity转化为po
@@ -123,7 +123,7 @@ class PromptService:
             if content is None:
                 original = self.repository.get_by_id(prompt_id)
                 content = original.content if original else None
-            if not self.validate_prompt_with_DUBBING(content=content):
+            if not self.validate_prompt_with_dubbing(content=content):
                 return False
 
         self.repository.update(prompt_id, data)

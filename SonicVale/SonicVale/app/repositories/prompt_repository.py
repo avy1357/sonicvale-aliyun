@@ -1,4 +1,4 @@
-from typing import List, Optional, Sequence
+from typing import Optional, Sequence
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from app.models.po import PromptPO
@@ -63,6 +63,9 @@ class PromptRepository:
 
     def search(self, keyword: str) -> Sequence[PromptPO]:
         """模糊搜索"""
+        # 限制 keyword 长度,防止性能问题
+        if keyword and len(keyword) > 100:
+            keyword = keyword[:100]
         # 转义 LIKE 通配符,防止注入
         escaped_keyword = keyword.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
         stmt = select(PromptPO).where(PromptPO.name.ilike(f"%{escaped_keyword}%", escape='\\'))

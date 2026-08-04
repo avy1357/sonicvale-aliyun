@@ -4,7 +4,7 @@
     <div class="bar">
       <!-- 替换原来的按钮 -->
       <el-button :type="isPlaying ? 'danger' : 'success'" class="play-btn" :class="{ playing: isPlaying }" circle
-        size="mid" @click="togglePlay">
+        size="default" @click="togglePlay">
         <template #icon>
           <el-icon :size="22">
             <VideoPause v-if="isPlaying" />
@@ -15,7 +15,7 @@
 
       <!-- 下载按钮 -->
       <el-tooltip :content="ready ? '下载音频' : '暂无音频'" placement="top">
-        <el-button class="download-btn" :class="{ 'is-disabled': !ready }" circle size="mid" 
+        <el-button class="download-btn" :class="{ 'is-disabled': !ready }" circle size="default" 
           @click="downloadAudio" :disabled="!ready">
           <template #icon>
             <el-icon :size="18">
@@ -30,6 +30,7 @@
       <el-slider v-model="rate" :min="0.5" :max="2.0" :step="0.1" class="slider" />
 
       <span class="lbl">音量</span>
+      <!-- 音量范围 0~1.0,与 props.volume2x 取值范围一致 -->
       <el-slider v-model="vol2x" :min="0" :max="1.0" :step="0.01" class="slider" />
 
       <span class="lbl">添加间隔(s)</span>
@@ -59,7 +60,9 @@ import Regions from 'wavesurfer.js/dist/plugins/regions.esm.js'
 const props = defineProps({
   src: { type: String, required: true },     // 建议传 file://；否则会尝试转换
   speed: { type: Number, default: 1.0, validator: v => v == null || (v >= 0.5 && v <= 2.0) },     // 初始速度
-  volume2x: { type: Number, default: 1.0, validator: v => v == null || (v >= 0 && v <= 2.0) },  // 0~2.0（前端试听倍数）
+  // 注:prop 名为 volume2x 是历史遗留命名(原本设计为 0~2.0 倍数),但实际取值范围为 0~1.0
+  // 为避免破坏调用方代码,保留 prop 名,内部统一按 0~1.0 处理
+  volume2x: { type: Number, default: 1.0, validator: v => v == null || (v >= 0 && v <= 1.0) },  // 0~1.0（前端试听音量）
   startMs: { default: null, validator: v => v == null || typeof v === 'number' },  // 初始选区
   endMs: { default: null, validator: v => v == null || typeof v === 'number' },
 })
@@ -166,7 +169,13 @@ onMounted(async () => {
     else ws.play(r.start)
   })
 
-  await ws.load(toUrl(props.src))
+  try {
+    await ws.load(toUrl(props.src))
+  } catch (err) {
+    console.error('[WaveCellPro] 加载音频失败:', err)
+    ready.value = false
+    ElMessage.error('音频加载失败，请检查音频路径是否有效')
+  }
 })
 
 onBeforeUnmount(() => {

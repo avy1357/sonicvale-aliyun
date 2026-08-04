@@ -6,6 +6,8 @@ import requests
 import time
 from typing import Optional
 
+from app.core.exceptions import RETRYABLE_NETWORK_EXCEPTIONS
+
 
 class VolcanoVoiceCloneClient:
     """
@@ -35,13 +37,15 @@ class VolcanoVoiceCloneClient:
     
     MAX_RETRIES = 3
     RETRY_DELAY = 2
-    
+    # 音频文件大小上限(50MB),防止上传过大文件
+    MAX_AUDIO_SIZE_BYTES = 50 * 1024 * 1024
+
     def __init__(self, x_api_key: str,
                  resource_id: Optional[str] = None, model_type: int = MODEL_TYPE_ICL_1_0,
                  appid: Optional[str] = None):
         """
         初始化声音复刻客户端
-        
+
         :param x_api_key: X-Api-Key（用于声音复刻API鉴权）
         :param resource_id: 资源 ID，如 seed-icl-1.0 / seed-icl-2.0
         :param model_type: 模型类型，1=ICL1.0, 2=DiT标准版, 3=DiT还原版, 4=ICL2.0
@@ -52,8 +56,12 @@ class VolcanoVoiceCloneClient:
         self.model_type = model_type
         self.appid = appid
         self.session = requests.Session()
-        
+
         logging.info("火山引擎声音复刻客户端初始化成功，model_type: %d", self.model_type)
+
+    def __repr__(self) -> str:
+        # 隐藏 x_api_key,避免日志/调试输出泄露凭据
+        return f"VolcanoVoiceCloneClient(resource_id={self.resource_id!r}, model_type={self.model_type})"
     
     def _build_headers(self) -> dict:
         """构建请求头"""
@@ -85,7 +93,14 @@ class VolcanoVoiceCloneClient:
         """
         if not os.path.exists(audio_path):
             raise FileNotFoundError(f"音频文件不存在: {audio_path}")
-        
+
+        # 校验音频文件大小,防止上传过大文件
+        file_size = os.path.getsize(audio_path)
+        if file_size > self.MAX_AUDIO_SIZE_BYTES:
+            raise ValueError(
+                f"音频文件过大: {file_size} 字节, 超过最大限制 {self.MAX_AUDIO_SIZE_BYTES} 字节"
+            )
+
         with open(audio_path, "rb") as f:
             audio_bytes = f.read()
         
@@ -136,13 +151,15 @@ class VolcanoVoiceCloneClient:
                 logging.info("声音复刻音频上传成功，speaker_id: %s", speaker_id)
                 return result
                 
-            except (ConnectionError, TimeoutError, OSError) as e:
+            except RETRYABLE_NETWORK_EXCEPTIONS as e:
                 if attempt < self.MAX_RETRIES - 1:
                     logging.warning("上传失败，第 %d 次重试: %s", attempt + 1, str(e))
                     time.sleep(self.RETRY_DELAY * (2 ** attempt))
                 else:
                     logging.exception("上传失败，已达到最大重试次数")
                     raise
+        # for 循环正常结束(未 return)时显式抛出,避免隐式返回 None
+        raise RuntimeError("上传失败: 重试耗尽")
     
     def query_status(self, speaker_id: str) -> dict:
         """
@@ -174,13 +191,15 @@ class VolcanoVoiceCloneClient:
                 
                 return result
                 
-            except (ConnectionError, TimeoutError, OSError) as e:
+            except RETRYABLE_NETWORK_EXCEPTIONS as e:
                 if attempt < self.MAX_RETRIES - 1:
                     logging.warning("查询状态失败，第 %d 次重试: %s", attempt + 1, str(e))
                     time.sleep(self.RETRY_DELAY * (2 ** attempt))
                 else:
                     logging.exception("查询状态失败，已达到最大重试次数")
                     raise
+        # for 循环正常结束(未 return)时显式抛出,避免隐式返回 None
+        raise RuntimeError("查询状态失败: 重试耗尽")
     
     def wait_for_training(self, speaker_id: str, max_wait_seconds: int = 600, 
                           poll_interval: int = 5) -> dict:

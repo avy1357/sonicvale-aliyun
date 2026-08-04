@@ -9,10 +9,10 @@ class VoiceCloneEntity:
     tts_provider_id: int
     name: str
     speaker_id: str
+    id: Optional[int] = None
     model_type: int = 1
     language: int = 0
     status: int = 0
-    id: Optional[int] = None
     reference_path: Optional[str] = None
     description: Optional[str] = None
     demo_audio_url: Optional[str] = None

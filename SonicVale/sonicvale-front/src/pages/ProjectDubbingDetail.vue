@@ -726,9 +726,12 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
-import { useRoute } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ref, computed, onMounted, onUnmounted, onBeforeUnmount, watch, reactive, shallowRef, h } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import {
+    ElMessage, ElLoading, ElMessageBox, ElTableV2,
+    ElInput, ElSelect, ElOption, ElTag, ElText, ElButton, ElPopconfirm, ElSwitch
+} from 'element-plus'
 import {
     Lock, Unlock, ArrowLeft, Setting, Headset, Menu, Plus, Search, Edit, Delete, Refresh, MagicStick, Document, CaretBottom, CaretRight, Upload, VideoPlay, VideoPause, Mute, Check, Download,
     CircleCheck, CircleClose, QuestionFilled, Odometer, Microphone, ArrowDown, Operation, DArrowLeft, DArrowRight
@@ -742,18 +745,8 @@ import * as voiceAPI from '../api/voice'
 import * as providerAPI from '../api/provider'
 import * as enumAPI from '../api/enums' // 例如 emotion/strength API
 import * as promptAPI from '../api/prompt'
-import { ElTableV2 } from 'element-plus'
-import { h } from 'vue'
-import {
-    ElInput,
-    ElSelect,
-    ElOption,
-    ElTag,
-    ElText,
-    ElButton,
-    ElPopconfirm,
-    ElSwitch
-} from 'element-plus'
+import WaveCellPro from '../components/WaveCellPro.vue'
+import { decodeUtf8OrGbk } from '../utils/utf8-or-gbk.js'
 const emotionLocked = ref(false)
 const strengthLocked = ref(false)
 
@@ -763,7 +756,6 @@ const roleColumnLocked = ref(false)
 const asideCollapsed = ref(false)
 // //////////////////////////////////websocket
 // ---- WebSocket（局部，纯 JS）+ 任务队列 ----
-import { onUnmounted } from 'vue'
 const queue_rest_size = ref(0) // 后端返回的队列剩余长度
 
 
@@ -777,7 +769,12 @@ function wsUrl() {
     const httpBase = service.defaults.baseURL // 例如 'http://127.0.0.1:8000/'
     const proto = location.protocol === 'https:' ? 'wss' : 'ws'
     const host = httpBase.replace(/^http(s?):\/\//, '').replace(/\/$/, '') // 去掉 http:// 和末尾斜杠
-    return `${proto}://${host}/ws?project_id=${projectId}`
+    // 校验 projectId 必须是有效数字,避免注入
+    if (!/^\d+$/.test(String(projectId))) {
+        console.warn('[ws] projectId 非法,已拒绝拼接 URL:', projectId)
+        return ''
+    }
+    return `${proto}://${host}/ws?project_id=${encodeURIComponent(projectId)}`
 }
 
 // 队列：追加一条并持久化（最多保留 200 条）
@@ -849,15 +846,25 @@ function startHeartbeat() {
         heartbeatTimeout = setTimeout(() => {
             // 未按期收到 pong，判定为假死，主动关闭触发重连
             addQueue({ title: '心跳超时', meta: '触发重连', type: 'warning' });
+            // 关闭前先停止心跳,避免在 close 后还触发新的 ping
+            stopHeartbeat();
             try { ws && ws.close(); } catch (e) { console.warn('[ws] 心跳超时关闭失败:', e) }
         }, HEARTBEAT_DEADLINE);
     }, HEARTBEAT_INTERVAL);
 }
 
 function connectWS() {
+    // 进入连接前先清理可能残留的重连定时器和心跳,避免重连时产生多个定时器
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+    stopHeartbeat()
+
     if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return
 
-    ws = new WebSocket(wsUrl())
+    const url = wsUrl()
+    // projectId 非法时 wsUrl 返回空字符串,直接放弃连接
+    if (!url) return
+
+    ws = new WebSocket(url)
 
     ws.onopen = () => {
         wsRetry = 0
@@ -912,11 +919,7 @@ function connectWS() {
                 queue_rest_size.value = msg.progress
                 if (msg.progress === 0 && msg.status !== 'processing' && msg.status !== 'queued') {
                     if (completionSoundEnabled.value === true) {
-                        const audio = new Audio(new URL('../assets/完成提示音.mp3', import.meta.url).href)
-                        audio.volume = 0.2
-                        audio.play().catch(err => {
-                            console.warn('播放完成提示音失败：', err)
-                        })
+                        playCompletionSound()
                     }
                     // 可配合消息提示
                     // ElMessage({
@@ -956,6 +959,7 @@ const native = window.native
 
 // 路由参数
 const route = useRoute()
+const router = useRouter()
 const projectId = Number(route.params.id)
 
 // 顶部
@@ -1088,6 +1092,10 @@ watch(
 )
 
 async function openRootDir  (){
+    if (!window.native?.openFolder) {
+        ElMessage.warning('当前环境不支持此操作')
+        return
+    }
     await native.openFolder(settingsForm.value.project_root_path)
 }
 // 保存=更新项目（直接调用你的 update 接口）
@@ -1285,7 +1293,6 @@ async function submitEdit() {
 // LLM 拆分（解析 → 预览 → 保存为初始台词）
 // const dialogSplitPreview = ref(false)
 // const splitPreview = ref([]) // LineInitDTO[]
-import { ElLoading, ElMessageBox } from 'element-plus'
 async function splitByLLM() {
     if (!activeChapterId.value) return
 
@@ -1372,18 +1379,25 @@ let loadRequestId = 0 // 章节切换异步竞态保护:每次加载递增,返�
 async function loadLines() {
     if (!activeChapterId.value) return
     const reqId = ++loadRequestId
-    const res = await lineAPI.getLinesByChapter(activeChapterId.value)
-    // 章节切换竞态保护:若期间又触发了新的加载,则丢弃本次结果
-    if (reqId !== loadRequestId) return
-    lines.value = res?.code === 200 ? (res.data || []) : []
-    // 音频默认参数：
-    stats.value.lineCount = lines.value.length
-    // ✅ 关键：刷新所有行的音频版本号，强制 WaveCellPro 重新加载音频
-    lines.value.forEach(row => {
-        if (row.audio_path) {
-            bumpVer(row.id)
-        }
-    })
+    try {
+        const res = await lineAPI.getLinesByChapter(activeChapterId.value)
+        // 章节切换竞态保护:若期间又触发了新的加载,则丢弃本次结果
+        if (reqId !== loadRequestId) return
+        lines.value = res?.code === 200 ? (res.data || []) : []
+        // 音频默认参数：
+        stats.value.lineCount = lines.value.length
+        // ✅ 关键：刷新所有行的音频版本号，强制 WaveCellPro 重新加载音频
+        lines.value.forEach(row => {
+            if (row.audio_path) {
+                bumpVer(row.id)
+            }
+        })
+    } catch (err) {
+        console.error('加载台词列表失败:', err)
+        ElMessage.error('加载台词列表失败，请稍后重试')
+        lines.value = []
+        stats.value.lineCount = 0
+    }
 }
 
 // 替换原来的两个函数
@@ -1627,6 +1641,17 @@ const queue = ref([])
 // 初始化
 
 onMounted(async () => {
+    // 校验路由参数中的项目ID是否有效
+    if (isNaN(projectId)) {
+        ElMessage.error('无效的项目ID')
+        router.back()
+        return
+    }
+    // 初始化共享的完成提示音 Audio 实例(在挂载后创建,确保 import.meta.url 已就绪)
+    try {
+        completionAudio.value = new Audio(new URL('../assets/完成提示音.mp3', import.meta.url).href)
+        completionAudio.value.volume = 0.2
+    } catch (e) { console.warn('初始化完成提示音 Audio 失败:', e) }
     await loadProject()
     // 预加载 TTS 提供商列表，用于判断 isAliyunTTS
     try {
@@ -1638,9 +1663,13 @@ onMounted(async () => {
     scrollToActiveChapter() // 定位到选中的章节
     await loadLines()
     await loadChapterDetail(activeChapterId.value)
+    loadEnums() // 合并自原 2517 行的 onMounted,加载枚举数据
     // —— WebSocket：恢复历史队列并连接
     restoreQueue()
     connectWS()
+    // 合并自原 3374 行的 onMounted,初始化树高度并监听窗口大小
+    updateTreeHeight()
+    window.addEventListener("resize", updateTreeHeight);
 })
 
 onUnmounted(() => {
@@ -1656,6 +1685,11 @@ onUnmounted(() => {
     } catch (e) { console.warn(e) }
     // 清理试听音频 currentAudio，避免资源泄漏
     if (currentAudio) { currentAudio.pause(); currentAudio = null }
+    // 清理完成提示音共享 Audio 实例
+    if (completionAudio.value) {
+        try { completionAudio.value.pause() } catch (e) { console.warn(e) }
+        completionAudio.value = null
+    }
     // 清理重连定时器
     if (reconnectTimer) clearTimeout(reconnectTimer)
     // 清理心跳定时器
@@ -1663,6 +1697,8 @@ onUnmounted(() => {
     // 关闭 WebSocket 连接
     try { ws && ws.close() } catch (e) { console.warn(e) }
     ws = null
+    // 合并自原 3378 行的 onBeforeUnmount,移除窗口大小监听
+    window.removeEventListener("resize", updateTreeHeight);
 })
 
 
@@ -1794,14 +1830,6 @@ async function createRole() {
         if (newRole && createRoleForm.value.default_voice_id) {
             roleVoiceMap.value[newRole.id] = createRoleForm.value.default_voice_id
         }
-
-        // 若你前面实现了“隐藏已删除同名角色”的本地黑名单，这里确保新建角色可见：
-        if (typeof hiddenRoleNames !== 'undefined' && hiddenRoleNames?.value instanceof Set) {
-            if (hiddenRoleNames.value.has(name)) {
-                hiddenRoleNames.value.delete(name)
-                try { localStorage.setItem(`hidden_roles_${projectId}`, JSON.stringify([...hiddenRoleNames.value])) } catch { }
-            }
-        }
     } else {
         ElMessage.error(res?.message || '创建失败')
     }
@@ -1839,8 +1867,10 @@ async function insertBelow(row) {
         text_content: '',
         status: 'pending',
         is_done: 0,
-        // 情绪和强度继承当前行
-
+        line_order: 0, // 占位,后面统一重排
+        emotion_id: row.emotion_id ?? null, // 情绪继承当前行
+        strength_id: row.strength_id ?? null, // 强度继承当前行
+        audio_path: '' // 新行无音频
     }
 
     lines.value.splice(insertIndex + 1, 0, newLine)
@@ -1885,7 +1915,12 @@ async function insertAtTop() {
         chapter_id: activeChapterId.value,
         role_id: null,
         text_content: '',
-        status: 'pending'
+        status: 'pending',
+        is_done: 0,
+        line_order: 0, // 占位,后面统一重排
+        emotion_id: null,
+        strength_id: null,
+        audio_path: '' // 新行无音频
     }
 
     lines.value.unshift(newLine) // 插到数组开头
@@ -2131,6 +2166,8 @@ const replaceFilename = (p, name) => (p ? p.replace(/[^/\\]+$/, name) : name)
 const addTempPrefix = (p) => (p ? p.replace(/([^/\\]+)$/, 'temp_$1') : null)
 
 async function markAllAsCompleted() {
+    // 性能说明:阶段 1/2 中的接口调用均为串行 await,当 list 较大时会比较慢
+    // 这里不强制改为并发(并发可能导致后端文件名冲突或乱序),保留串行以保证顺序正确性
     const list = lines.value
     if (!list.length) {
         ElMessage.info('当前无台词')
@@ -2356,8 +2393,6 @@ function playVoice(voiceId) {
 }
 
 // 音频处理
-import WaveCellPro from '../components/WaveCellPro.vue'
-import { fa } from 'element-plus/es/locales.mjs'
 // 行音频版本号：lineId -> number
 const audioVer = ref(new Map())
 
@@ -2511,9 +2546,6 @@ async function updateLineStrength(row) {
     }
 }
 
-onMounted(() => {
-    loadEnums()
-})
 const dialogSelectVoice = ref({
     visible: false,
     role: null,  // 当前操作的角色
@@ -2597,29 +2629,6 @@ function handleTagChange() {
     setTimeout(() => {
         filterSelectRef.value.blur()
     }, 0)
-}
-function cellStyle({ row, column }) {
-    // 角色列无数据
-    if (column.property === 'role_id' && !row.role_id) {
-        return { backgroundColor: '#ffecec', color: '#d93025' }
-    }
-
-    // 台词文本列无数据
-    if (column.label === '台词文本' && (!row.text_content || !row.text_content.trim())) {
-        return { backgroundColor: '#ffecec', color: '#d93025' }
-    }
-
-    // 情绪列无数据
-    if (column.label === '情绪' && !row.emotion_id) {
-        return { backgroundColor: '#ffecec', color: '#d93025' }
-    }
-
-    // 强度列无数据
-    if (column.label === '强度' && !row.strength_id) {
-        return { backgroundColor: '#ffecec', color: '#d93025' }
-    }
-
-    return {}
 }
 
 // 处理矫正下拉菜单命令
@@ -2878,6 +2887,17 @@ try {
     completionSoundEnabled.value = raw === '1' || raw === 'true'
 } catch { }
 
+// 共享的完成提示音 Audio 实例,避免每次播放都新建对象造成资源泄漏
+const completionAudio = shallowRef(null)
+function playCompletionSound() {
+    if (completionAudio.value) {
+        try {
+            completionAudio.value.currentTime = 0
+            completionAudio.value.play().catch(err => { /* 忽略自动播放策略导致的失败 */ })
+        } catch (e) { console.warn('播放完成提示音失败:', e) }
+    }
+}
+
 // 监听 playMode 变化并存储到本地
 watch(playMode, (val) => {
     try { localStorage.setItem('playMode', val) } catch { }
@@ -2889,8 +2909,8 @@ watch(completionSoundEnabled, (val) => {
 function handleEnded({ handle, id }) {
     if (playMode.value !== 'sequential') return
 
-    // 拿到当前行列表（确保按 line_order 排序）
-    const list = [...displayedLines.value].sort((a, b) => a.line_order - b.line_order)
+    // 拿到当前行列表（确保按 line_order 排序,使用 ?? 0 兜底避免 null/undefined 导致 NaN）
+    const list = [...displayedLines.value].sort((a, b) => (a.line_order ?? 0) - (b.line_order ?? 0))
     const idx = list.findIndex(l => l.id === id)
     if (idx === -1) {
         console.warn('handleEnded: 未找到当前行，终止顺序播放')
@@ -2923,7 +2943,8 @@ function handleEnded({ handle, id }) {
 
     if (nextHandle?.play) {
         stopOthers(nextHandle) // 停止其他行
-        nextHandle.play()
+        // 添加 catch 避免播放被浏览器自动播放策略拒绝时抛出未捕获的 Promise 异常
+        nextHandle.play().catch(() => {})
     } else {
         console.warn('handleEnded: 下一行实例没有 play 方法 => ID:', nextRow.id)
     }
@@ -2953,7 +2974,6 @@ const wrapCellHighlight = (condition, children) => {
         children
     )
 }
-import { reactive } from 'vue'
 const lineColumns = reactive([
     {
         key: 'line_order',
@@ -3277,7 +3297,6 @@ async function updateLineIsDone(row, val) {
     }
 }
 
-import { decodeUtf8OrGbk } from "../utils/utf8-or-gbk.js";
 async function handleBatchImport() {
     let loadingInstance = null
     try {
@@ -3309,10 +3328,18 @@ async function handleBatchImport() {
             ElMessage.error('无法读取所选文件,请确认文件在允许访问的目录内')
             return
         }
-        // ✅ 仅 UTF-8 / GBK 自动识别
-        const { encoding, text } = decodeUtf8OrGbk(fileBytes);
+        // ✅ 仅 UTF-8 / GBK 自动识别,捕获解码异常避免抛错未处理
+        let text
+        try {
+            const decoded = decodeUtf8OrGbk(fileBytes);
+            text = decoded?.text
+        } catch (e) {
+            console.error('文件解码失败:', e)
+            ElMessage.error('文件编码不支持,请使用 UTF-8 或 GBK 编码')
+            return
+        }
         // 如果文件内容为空
-        if (!text.trim()) {
+        if (!text || !text.trim()) {
             ElMessage.warning('TXT 文件为空，未执行导入')
             return
         }
@@ -3340,8 +3367,11 @@ async function handleBatchImport() {
 
     } catch (err) {
         console.error('❌ 操作取消或出错:', err)
-        if (err !== 'cancel') {
+        // ElMessageBox 取消/关闭会 reject 出 'cancel' / 'close',其他才是真正出错
+        if (err === 'cancel' || err === 'close') {
             ElMessage.info('已取消导入')
+        } else {
+            ElMessage.error('导入出错')
         }
     } finally {
         // 7️⃣ 无论成功或失败都关闭 loading
@@ -3350,20 +3380,12 @@ async function handleBatchImport() {
         }
     }
 }
-import { onBeforeUnmount } from "vue";
 const treeHeight = ref(500);
 function updateTreeHeight() {
     // 根据窗口大小或 aside 可视区动态调整
     treeHeight.value = window.innerHeight - 230; // 减去头部、搜索框、padding等高度
 }
-
-onMounted(() => {
-    updateTreeHeight();
-    window.addEventListener("resize", updateTreeHeight);
-});
-onBeforeUnmount(() => {
-    window.removeEventListener("resize", updateTreeHeight);
-});
+// 注:原 onMounted/onBeforeUnmount 已合并到顶部主 onMounted/onUnmounted 中
 
 
 // 记忆功能
@@ -3372,7 +3394,11 @@ onBeforeUnmount(() => {
  */
 function saveLastChapter() {
     const key = 'lastChapterMap';
-    const map = JSON.parse(localStorage.getItem(key) || '{}');
+    let map = JSON.parse(localStorage.getItem(key) || '{}');
+    // 校验反序列化结果必须是对象,避免被污染为其他类型
+    if (typeof map !== 'object' || map === null || Array.isArray(map)) {
+        map = {}
+    }
     map[projectId] = activeChapterId.value;
     localStorage.setItem(key, JSON.stringify(map));
 }
@@ -3390,7 +3416,11 @@ function scrollToActiveChapter() {
 }
 function restoreLastChapter() {
     const key = 'lastChapterMap';
-    const map = JSON.parse(localStorage.getItem(key) || '{}');
+    let map = JSON.parse(localStorage.getItem(key) || '{}');
+    // 校验反序列化结果必须是对象,避免被污染为其他类型
+    if (typeof map !== 'object' || map === null || Array.isArray(map)) {
+        map = {}
+    }
     const last = map[projectId];
 
     if (last && chapters.value.find(c => c.id === last)) {

@@ -89,7 +89,8 @@ class ASRData:
             # 中文短文本需额外校验确实包含汉字,避免把英文标点等误判为字级时间戳
             if (len(text.split()) == 1 and text.isascii()) or (len(text.strip()) <= 2 and any('\u4e00' <= c <= '\u9fff' for c in text.strip())):
                 valid_segments += 1
-        logging.info("valid_segments: %s, total_segments: %s", valid_segments, total_segments)
+        # 改为 DEBUG 级别,避免 INFO 日志输出过多调试信息
+        logging.debug("valid_segments: %s, total_segments: %s", valid_segments, total_segments)
         return (valid_segments / total_segments) >= 0.8
 
 
@@ -217,16 +218,16 @@ class ASRData:
         return ass_content
 
     def merge_segments(self, start_index: int, end_index: int, merged_text: str = None):
-            """合并从 start_index 到 end_index 的段（包含）。"""
-            if start_index < 0 or end_index >= len(self.segments) or start_index > end_index:
-                raise IndexError("无效的段索引。")
-            merged_start_time = self.segments[start_index].start_time
-            merged_end_time = self.segments[end_index].end_time
-            if merged_text is None:
-                merged_text = ''.join(seg.text for seg in self.segments[start_index:end_index+1])
-            merged_seg = ASRDataSeg(merged_text, merged_start_time, merged_end_time)
-            # 替换 segments[start_index:end_index+1] 为 merged_seg
-            self.segments[start_index:end_index+1] = [merged_seg]
+        """合并从 start_index 到 end_index 的段（包含）。"""
+        if start_index < 0 or end_index >= len(self.segments) or start_index > end_index:
+            raise IndexError("无效的段索引。")
+        merged_start_time = self.segments[start_index].start_time
+        merged_end_time = self.segments[end_index].end_time
+        if merged_text is None:
+            merged_text = ''.join(seg.text for seg in self.segments[start_index:end_index+1])
+        merged_seg = ASRDataSeg(merged_text, merged_start_time, merged_end_time)
+        # 替换 segments[start_index:end_index+1] 为 merged_seg
+        self.segments[start_index:end_index+1] = [merged_seg]
 
     def merge_with_next_segment(self, index: int) -> None:
         """合并指定索引的段与下一个段。"""
@@ -268,7 +269,11 @@ def from_subtitle_file(file_path: str) -> 'ASRData':
     try:
         content = file_path.read_text(encoding='utf-8')
     except UnicodeDecodeError:
-        content = file_path.read_text(encoding='gbk')
+        try:
+            content = file_path.read_text(encoding='gbk')
+        except UnicodeDecodeError:
+            # 最终用 errors='replace' 兜底,确保不会因编码问题导致解析失败
+            content = file_path.read_text(encoding='utf-8', errors='replace')
         
     suffix = file_path.suffix.lower()
     
@@ -344,7 +349,7 @@ def from_srt(srt_str: str) -> 'ASRData':
 def from_vtt(vtt_str: str) -> 'ASRData':
     """
     从YouTube VTT格式的字符串创建ASRData实例。
-    
+
     :param vtt_str: YouTube VTT格式的字幕字符串
     :return: ASRData实例
     """
@@ -352,9 +357,24 @@ def from_vtt(vtt_str: str) -> 'ASRData':
     # 遍历所有块,跳过以 "WEBVTT" 开头的头部块(不再硬编码跳过前两块)
     content = vtt_str.split('\n\n')
 
-    current_text = ""
-    current_start = 0
-    current_end = 0
+    # 用正则统一解析 VTT 时间戳,兼容多种格式:
+    # HH:MM:SS.mmm / HH:MM:SS / MM:SS.mmm / MM:SS
+    vtt_ts_pattern = re.compile(
+        r'(?:(\d{1,2}):)?(\d{1,2}):(\d{1,2})(?:\.(\d{1,3}))?'
+    )
+
+    def parse_vtt_timestamp(ts: str) -> int:
+        """将 VTT 时间戳字符串转换为毫秒"""
+        m = vtt_ts_pattern.match(ts.strip())
+        if not m:
+            return 0
+        hours = int(m.group(1)) if m.group(1) else 0
+        minutes = int(m.group(2))
+        seconds = int(m.group(3))
+        # 毫秒部分补齐到 3 位
+        ms_str = m.group(4) or '0'
+        milliseconds = int(ms_str.ljust(3, '0'))
+        return (hours * 3600 + minutes * 60 + seconds) * 1000 + milliseconds
 
     for block in content:
         if block.strip().startswith("WEBVTT"):
@@ -368,25 +388,17 @@ def from_vtt(vtt_str: str) -> 'ASRData':
         if '-->' not in timestamp_line:
             continue
 
-        # 提取开始和结束时间
-        times = timestamp_line.split(' --> ')[0]
-        hours, minutes, seconds = times.split(':')
-        # 兼容无小数点的秒值(如整数秒),补齐毫秒为 000
-        parts = seconds.split('.')
-        if len(parts) == 1:
-            parts.append('000')
-        seconds, milliseconds = parts
-        start_time = (int(hours) * 3600 + int(minutes) * 60 + int(seconds)) * 1000 + int(milliseconds)
+        # 提取开始和结束时间(用正则统一解析,兼容多种格式)
+        arrow_parts = timestamp_line.split('-->')
+        if len(arrow_parts) < 2:
+            continue
+        start_str = arrow_parts[0].strip()
+        # 结束时间可能后跟样式参数(如 line:0),取第一个空白前的部分
+        end_str = arrow_parts[1].strip().split()[0]
 
-        times = timestamp_line.split(' --> ')[1].split()[0]
-        hours, minutes, seconds = times.split(':')
-        # 兼容无小数点的秒值(如整数秒),补齐毫秒为 000
-        parts = seconds.split('.')
-        if len(parts) == 1:
-            parts.append('000')
-        seconds, milliseconds = parts
-        end_time = (int(hours) * 3600 + int(minutes) * 60 + int(seconds)) * 1000 + int(milliseconds)
-        
+        start_time = parse_vtt_timestamp(start_str)
+        end_time = parse_vtt_timestamp(end_str)
+
         # 提取并清文本内容
         if len(lines) > 1:
             text_line = lines[1]
@@ -394,10 +406,10 @@ def from_vtt(vtt_str: str) -> 'ASRData':
             cleaned_text = re.sub(r'<\d{2}:\d{2}:\d{2}\.\d{3}>', '', text_line)
             cleaned_text = re.sub(r'</?c>', '', cleaned_text)
             cleaned_text = cleaned_text.strip()
-            
+
             if cleaned_text and cleaned_text != " ":
                 segments.append(ASRDataSeg(cleaned_text, start_time, end_time))
-    
+
     return ASRData(segments)
 
 def from_youtube_vtt(vtt_str: str) -> 'ASRData':

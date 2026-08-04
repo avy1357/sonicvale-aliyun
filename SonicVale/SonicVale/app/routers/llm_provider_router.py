@@ -48,15 +48,15 @@ def create_llm_provider(dto: LLMProviderCreateDTO, service: LLMProviderService =
     """
     try:
         # DTO → Entity
-        entity = LLMProviderEntity(**dto.__dict__)
+        entity = LLMProviderEntity(**dto.model_dump())
 
         # 调用 Service 创建LLM供应商（返回 True/False）
-        entityRes = service.create_llm_provider(entity)
+        entity_res = service.create_llm_provider(entity)
 
         # 返回统一 Response
-        if entityRes is not None:
+        if entity_res is not None:
             # C6: 创建成功后脱敏返回
-            res = LLMProviderResponseDTO(**_mask_secrets(entityRes))
+            res = LLMProviderResponseDTO(**_mask_secrets(entity_res))
             return Res(data=res, code=200, message="创建成功")
         else:
             return Res(data=None, code=400, message=f"LLM供应商 '{entity.name}' 已存在")
@@ -88,7 +88,7 @@ def get_all_llm_providers(service: LLMProviderService = Depends(get_llm_service)
 
 
 # ------------------- 修改LLM供应商 -------------------
-@router.put("/{llm_provider_id}", response_model=Res[LLMProviderCreateDTO],
+@router.put("/{llm_provider_id}", response_model=Res[LLMProviderResponseDTO],
             summary="修改LLM供应商",
             description="根据LLM供应商ID修改LLM供应商信息")
 def update_llm_provider(llm_provider_id: int, dto: LLMProviderCreateDTO, service: LLMProviderService = Depends(get_llm_service)):
@@ -98,7 +98,7 @@ def update_llm_provider(llm_provider_id: int, dto: LLMProviderCreateDTO, service
     if not llm_provider:
         return Res(data=None, code=400, message="LLM供应商不存在")
 
-    success = service.update_llm_provider(llm_provider_id,dto.dict(exclude_unset=True))
+    success = service.update_llm_provider(llm_provider_id,dto.model_dump(exclude_unset=True))
     if success:
         # 返回更新后的实体(脱敏),而非入参 dto
         updated = service.get_llm_provider(llm_provider_id)
@@ -128,7 +128,7 @@ def test_llm_provider(dto: LLMProviderCreateDTO, service: LLMProviderService = D
     测试供应商
     """
     try:
-        entity = LLMProviderEntity(**dto.__dict__)
+        entity = LLMProviderEntity(**dto.model_dump())
         result = service.test_llm_provider(entity)
         # 防御性校验返回值类型
         if not isinstance(result, tuple) or len(result) != 2:

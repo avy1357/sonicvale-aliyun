@@ -170,7 +170,8 @@ async function readTextFile(filePath) {
 async function openFolder(folderPath) {
   if (!isTauri) return false
   if (!folderPath) return false
-  // 路径白名单校验:规范化后禁止目录遍历,且必须是合法盘符路径
+  // 路径白名单校验:与 tauri.conf.json 中 shell scope 的 validator 保持一致
+  // 注意:此处 JS 校验仅作为 UX 提示,真正的安全控制依赖 Tauri shell scope 的 validator
   const normalized = folderPath.replace(/\\/g, '/')
   // 禁止目录遍历符号,避免 ../ 绕过
   if (normalized.includes('..')) {
@@ -182,11 +183,12 @@ async function openFolder(folderPath) {
     console.warn('路径格式不合法:', folderPath)
     return false
   }
-  // 仅允许打开 SonicVale / Documents 相关目录(按路径段匹配,避免子串绕过)
-  const segments = normalized.toLowerCase().split('/')
-  const allowed = segments.some(seg => seg === 'sonicvale' || seg === 'documents')
-  if (!allowed) {
-    console.warn('不允许打开此目录:', folderPath)
+  // 白名单目录前缀匹配:必须是 C:/Users/{用户名}/SonicVale/ 或 C:/Users/{用户名}/Documents/ 开头
+  // 与 tauri.conf.json 的 validator 正则保持一致(忽略大小写)
+  const ALLOWED_PREFIXES = ['sonicvale', 'documents']
+  const prefixRegex = /^[A-Za-z]:[\\/](?:Users|home)[\\/][^\\/]+[\\/](SonicVale|Documents)[\\/]/i
+  if (!prefixRegex.test(normalized + '/')) {
+    console.warn('不允许打开此目录(不在白名单前缀中):', folderPath, '允许的前缀:', ALLOWED_PREFIXES)
     return false
   }
   try {

@@ -26,7 +26,7 @@ export function fetchStrength(id) {
   })
 }
 
-// 查询所有情绪
+// 查询所有情绪强度
 export function fetchAllStrengths() {
   return request.get(`/strengths`).then(res => {
     if (res.code === 200) return res.data

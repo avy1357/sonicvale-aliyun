@@ -1,10 +1,8 @@
-import json
 import logging
 import os
 import re
 import shutil
 import threading
-from collections import defaultdict
 from typing import List, Sequence
 
 from app.core.config import getConfigPath
@@ -280,7 +278,7 @@ class ChapterService:
                 # 解析json，并且构造为List[LineInitDTO]
                 # 解析 JSON 字符串为 Python 对象
                 parsed_data = llm.save_load_json(result)
-                logging.info("save_load_json返回类型: %s, 内容: %s", type(parsed_data).__name__, str(parsed_data)[:500])
+                logging.info("save_load_json返回类型: %s, 内容长度: %d", type(parsed_data).__name__, len(str(parsed_data)))
                 if not parsed_data:
                     return {
                         "success": False,
@@ -346,6 +344,20 @@ class ChapterService:
                     "data": line_dtos
                 }
 
+            except (ValueError, KeyError, TypeError) as e:
+                # JSON 解析或数据格式异常
+                logging.exception("解析 LLM 返回数据出错: %s", e)
+                return {
+                    "success": False,
+                    "message": "LLM 返回数据格式异常, 请稍后重试"
+                }
+            except (ConnectionError, TimeoutError, OSError) as e:
+                # 网络异常
+                logging.exception("调用 LLM 网络异常: %s", e)
+                return {
+                    "success": False,
+                    "message": "LLM 服务网络异常, 请稍后重试"
+                }
             except Exception as e:
                 logging.exception("调用 LLM 出错: %s", e)
                 return {
@@ -384,6 +396,8 @@ class ChapterService:
             llm_provider_id = project.llm_provider_id
             llm_provider_repository = LLMProviderRepository(db)
             llm_provider = llm_provider_repository.get_by_id(llm_provider_id)
+            if llm_provider is None:
+                return False, []
             llm = LLMEngine(llm_provider.api_key, llm_provider.api_base_url, project.llm_model, llm_provider.custom_params)
             prompt = get_add_smart_role_and_voice(content,role_names, voice_names)
             result = llm.generate_smart_text(prompt)

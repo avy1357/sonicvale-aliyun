@@ -11,8 +11,14 @@ from .ASRData import ASRDataSeg, ASRData
 
 class BaseASR:
     SUPPORTED_SOUND_FORMAT = ["flac", "m4a", "mp3", "wav"]
-    CACHE_FILE = os.path.join(tempfile.gettempdir(), "bk_asr", "asr_cache.json")
+    # 缓存路径加入用户名区分,避免多用户共享同一缓存导致冲突
+    _username = os.environ.get('USERNAME') or os.environ.get('USER') or 'unknown'
+    CACHE_FILE = os.path.join(tempfile.gettempdir(), "bk_asr", _username, "asr_cache.json")
     _lock = threading.Lock()
+
+    # 模块级初始化缓存目录,避免在 __init__ 中重复创建
+    _CACHE_DIR = os.path.dirname(CACHE_FILE)
+    os.makedirs(_CACHE_DIR, exist_ok=True)
 
     def __init__(self, audio_path: Union[str, bytes], use_cache: bool = False):
         self.audio_path = audio_path
@@ -28,7 +34,7 @@ class BaseASR:
     def _load_cache(self):
         if not self.use_cache:
             return {}
-        os.makedirs(os.path.dirname(self.CACHE_FILE), exist_ok=True)
+        # 缓存目录已在模块级创建,此处无需重复 makedirs
         with self._lock:
             if os.path.exists(self.CACHE_FILE):
                 try:
@@ -45,15 +51,16 @@ class BaseASR:
             return
         with self._lock:
             try:
+                # 先检查现有缓存文件大小,超限则删除后再写入,避免缓存无限增长
+                if os.path.exists(self.CACHE_FILE) and os.path.getsize(self.CACHE_FILE) > 10 * 1024 * 1024:
+                    os.remove(self.CACHE_FILE)
                 with open(self.CACHE_FILE, 'w', encoding='utf-8') as f:
                     json.dump(self.cache, f, ensure_ascii=False, indent=2)
                 # 设置缓存文件权限为仅属主可读写(Windows 下 chmod 权限模型不同,跳过)
                 if os.name != 'nt':
                     os.chmod(self.CACHE_FILE, 0o600)
-                if os.path.exists(self.CACHE_FILE) and os.path.getsize(self.CACHE_FILE) > 10 * 1024 * 1024:
-                    os.remove(self.CACHE_FILE)
             except IOError as e:
-                logging.error(f"Failed to save cache: {e}")
+                logging.error("Failed to save cache: %s", e)
 
     def _set_data(self):
         if isinstance(self.audio_path, bytes):

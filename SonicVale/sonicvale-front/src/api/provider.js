@@ -72,6 +72,7 @@ export function fetchTTSProviders() {
     }
 
     // 如果后端暂时没实现接口，就返回默认值，以避免前端报错
+    return []
   })
 }
 

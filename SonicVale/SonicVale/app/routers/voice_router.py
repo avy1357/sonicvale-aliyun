@@ -5,6 +5,8 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
+from app.core.config import getConfigPath
+from app.core.path_security import validate_path_within_root, assert_path_not_system_critical
 from app.core.response import Res
 from app.db.database import get_db
 from app.dto.tts_provider_dto import TTSProviderResponseDTO
@@ -66,7 +68,11 @@ def process_voice_audio(dto: VoiceAudioProcessDTO, voice_service: VoiceService =
 def export_voices(dto: VoiceExportDTO, voice_service: VoiceService = Depends(get_voice_service)):
     """导出音色库到zip文件"""
     try:
-        result = voice_service.export_voices(dto.tts_provider_id, dto.export_path, dto.ids)
+        # 路径校验:导出路径必须在用户配置目录下,且不指向系统关键目录
+        root = getConfigPath()
+        export_path = validate_path_within_root(dto.export_path, root)
+        assert_path_not_system_critical(export_path)
+        result = voice_service.export_voices(dto.tts_provider_id, export_path, dto.ids)
         return Res(data=result, code=200, message="导出成功")
     except ValueError as e:
         return Res(data=None, code=400, message=str(e))
@@ -81,8 +87,15 @@ def export_voices(dto: VoiceExportDTO, voice_service: VoiceService = Depends(get
 def import_voices(dto: VoiceImportDTO, voice_service: VoiceService = Depends(get_voice_service)):
     """从zip文件导入音色库"""
     try:
+        # 路径校验:zip_path 和 target_dir 必须在用户配置目录下,且不指向系统关键目录
+        # 注意:zip 内部成员的 Zip Slip 校验由 service 层 safe_extract_zip 完成
+        root = getConfigPath()
+        zip_path = validate_path_within_root(dto.zip_path, root)
+        target_dir = validate_path_within_root(dto.target_dir, root)
+        assert_path_not_system_critical(zip_path)
+        assert_path_not_system_critical(target_dir)
         success_count, skipped_count, skipped_names = voice_service.import_voices(
-            dto.tts_provider_id, dto.zip_path, dto.target_dir
+            dto.tts_provider_id, zip_path, target_dir
         )
         result = VoiceImportResultDTO(
             success_count=success_count,
@@ -105,8 +118,12 @@ def import_voices(dto: VoiceImportDTO, voice_service: VoiceService = Depends(get
 def copy_voice(dto: VoiceCopyDTO, voice_service: VoiceService = Depends(get_voice_service)):
     """复制音色"""
     try:
+        # 路径校验:target_dir 必须在用户配置目录下,且不指向系统关键目录
+        root = getConfigPath()
+        target_dir = validate_path_within_root(dto.target_dir, root)
+        assert_path_not_system_critical(target_dir)
         new_voice = voice_service.copy_voice(
-            dto.source_voice_id, dto.new_name, dto.target_dir
+            dto.source_voice_id, dto.new_name, target_dir
         )
         res = VoiceResponseDTO(**new_voice.__dict__)
         return Res(data=res, code=200, message="复制成功")
@@ -141,17 +158,17 @@ def create_voice(dto: VoiceCreateDTO, voice_service: VoiceService = Depends(get_
     """创建音色"""
     try:
         # DTO → Entity
-        entity = VoiceEntity(**dto.__dict__)
+        entity = VoiceEntity(**dto.model_dump())
         # 判断tts_id是否存在
         tts_provider = tts_provider_service.get_tts_provider(dto.tts_provider_id)
 
         if tts_provider is None:
             return Res(data=None, code=400, message=f"tts服务提供商 '{dto.tts_provider_id}' 不存在")
         # 调用 Service 创建音色(重名会抛 VoiceAlreadyExistsError)
-        entityRes = voice_service.create_voice(entity)
+        entity_res = voice_service.create_voice(entity)
 
         # 返回统一 Response
-        res = VoiceResponseDTO(**entityRes.__dict__)
+        res = VoiceResponseDTO(**entity_res.__dict__)
         return Res(data=res, code=200, message="创建成功")
 
     except VoiceAlreadyExistsError as e:
@@ -184,7 +201,7 @@ def get_voice(voice_id: int, voice_service: VoiceService = Depends(get_voice_ser
 def update_voice(voice_id: int, dto: VoiceCreateDTO, voice_service: VoiceService = Depends(get_voice_service)):
     """更新音色:不在路由层重复查询,统一由 service 校验并抛业务异常"""
     try:
-        updated = voice_service.update_voice(voice_id, dto.dict(exclude_unset=True))
+        updated = voice_service.update_voice(voice_id, dto.model_dump(exclude_unset=True))
         res = VoiceResponseDTO(**updated.__dict__)
         return Res(data=res, code=200, message="修改成功")
     except VoiceNotFoundError as e:

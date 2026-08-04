@@ -1,10 +1,10 @@
 import request from './config'
 
 export function deleteLinesByChapter(chapterId) {
-  return request.delete(`/lines/lines/${chapterId}`)
+  return request.delete(`/lines/chapter/${chapterId}`)
 }
 export function getLinesByChapter(chapterId) {
-  return request.get(`/lines/lines/${chapterId}`)
+  return request.get(`/lines/chapter/${chapterId}`)
 }
 export function generateAudio(projectId, chapterId, body) {
   return request.post(`/lines/generate-audio/${projectId}/${chapterId}`, body)

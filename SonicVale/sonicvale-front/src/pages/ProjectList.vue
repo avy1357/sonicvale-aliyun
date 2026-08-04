@@ -154,7 +154,7 @@ import { ElMessage, ElLoading } from 'element-plus'
 import { fetchProjects, createProject, deleteProject } from '../api/project'
 import { fetchLLMProviders, fetchTTSProviders } from '../api/provider'
 import { fetchPromptList } from '../api/prompt'
-import { Plus, Delete, Cpu, Mic, Document, Clock, CircleCheck, CircleClose, Folder } from "@element-plus/icons-vue"
+import { Plus, Delete, Cpu, Mic, Document, Clock, CircleCheck, CircleClose } from "@element-plus/icons-vue"
 const prompts = ref([])
 
 const projects = ref([])
@@ -189,10 +189,27 @@ const ttsProviders = ref([])
 
 // 加载项目和 Provider 数据
 onMounted(async () => {
-    projects.value = await fetchProjects()
-    llmProviders.value = await fetchLLMProviders()
-    ttsProviders.value = await fetchTTSProviders()
-    prompts.value = await fetchPromptList()   // ✅ 加载提示词
+    try {
+        projects.value = await fetchProjects()
+    } catch (e) {
+        console.error('加载项目列表失败:', e)
+        ElMessage.error('加载项目列表失败')
+    }
+    try {
+        llmProviders.value = await fetchLLMProviders()
+    } catch (e) {
+        console.error('加载LLM提供商失败:', e)
+    }
+    try {
+        ttsProviders.value = await fetchTTSProviders()
+    } catch (e) {
+        console.error('加载TTS提供商失败:', e)
+    }
+    try {
+        prompts.value = await fetchPromptList()   // ✅ 加载提示词
+    } catch (e) {
+        console.error('加载提示词列表失败:', e)
+    }
 })
 
 
@@ -277,6 +294,11 @@ const handleSubmit = () => {
 
 const native = window.native
 const pickRootDir = async () => {
+    // 非 Tauri 环境(如浏览器)下 native 不存在,提前提示避免后续调用报错
+    if (!native) {
+        ElMessage.warning('当前环境不支持选择目录')
+        return
+    }
     try {
         const dir = await native?.selectDir()
         if (dir) {

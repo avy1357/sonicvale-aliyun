@@ -49,6 +49,8 @@ pub fn select_voice_folder(
     _app_handle: AppHandle,
     root_path: String,
 ) -> Result<Vec<VoiceFolderItem>, String> {
+    // 返回文件数量上限,避免误选超大目录导致前端卡死或内存暴涨
+    const MAX_FILES: usize = 1000;
     let root = validate_user_path(&PathBuf::from(&root_path))?;
     let voice_name = root
         .file_name()
@@ -60,6 +62,11 @@ pub fn select_voice_folder(
 
     let mut result = Vec::new();
     for entry in entries.flatten() {
+        // 已达上限提前结束扫描,避免无谓遍历
+        if result.len() >= MAX_FILES {
+            log::warn!("文件数量已达上限 {}，提前停止扫描", MAX_FILES);
+            break;
+        }
         let path = entry.path();
         if !path.is_dir() {
             continue;
@@ -79,6 +86,11 @@ pub fn select_voice_folder(
             }
         };
         for file_entry in files.flatten() {
+            // 内层循环同样检查上限,保证不超量
+            if result.len() >= MAX_FILES {
+                log::warn!("文件数量已达上限 {}，提前停止扫描", MAX_FILES);
+                break;
+            }
             let file_path = file_entry.path();
             if !file_path.is_file() {
                 continue;

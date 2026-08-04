@@ -1,14 +1,12 @@
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.response import Res
 from app.db.database import get_db
 from app.dto.emotion_dto import EmotionResponseDTO, EmotionCreateDTO
 from app.entity.emotion_entity import EmotionEntity
-from app.models.po import LinePO
 from app.repositories.emotion_repository import EmotionRepository
 from app.services.emotion_service import EmotionService
 
@@ -28,15 +26,15 @@ def create_emotion(dto: EmotionCreateDTO, emotion_service: EmotionService = Depe
     """创建情绪枚举"""
     try:
         # DTO → Entity
-        entity = EmotionEntity(**dto.__dict__)
+        entity = EmotionEntity(**dto.model_dump())
 
         # 调用 Service 创建项目（返回 True/False）
-        entityRes = emotion_service.create_emotion(entity)
+        entity_res = emotion_service.create_emotion(entity)
 
         # 返回统一 Response
-        if entityRes is not None:
+        if entity_res is not None:
             # 创建成功，可以返回 DTO 或者部分字段
-            res = EmotionResponseDTO(**entityRes.__dict__)
+            res = EmotionResponseDTO(**entity_res.__dict__)
             return Res(data=res, code=200, message="创建成功")
         else:
             return Res(data=None, code=400, message=f"情绪枚举 '{entity.name}' 已存在")
@@ -67,14 +65,14 @@ def get_all_emotions(emotion_service: EmotionService = Depends(get_emotion_servi
         return Res(data=[], code=200, message="查询成功")
 
 # 修改，传入的参数是id
-@router.put("/{emotion_id}", response_model=Res[EmotionCreateDTO],
+@router.put("/{emotion_id}", response_model=Res[EmotionResponseDTO],
             summary="修改情绪枚举信息",
             description="根据情绪枚举id修改情绪枚举信息,并且不能修改项目id")
 def update_emotion(emotion_id: int, dto: EmotionCreateDTO, emotion_service: EmotionService = Depends(get_emotion_service)):
     emotion = emotion_service.get_emotion(emotion_id)
     if emotion is None:
         return Res(data=None, code=404, message="情绪枚举不存在")
-    res = emotion_service.update_emotion(emotion_id, dto.dict(exclude_unset=True))
+    res = emotion_service.update_emotion(emotion_id, dto.model_dump(exclude_unset=True))
     if res:
         # 返回更新后的实体,而非入参 dto
         updated = emotion_service.get_emotion(emotion_id)
@@ -87,16 +85,13 @@ def update_emotion(emotion_id: int, dto: EmotionCreateDTO, emotion_service: Emot
 @router.delete("/{emotion_id}", response_model=Res,
                summary="删除情绪枚举",
                description="根据情绪枚举id删除情绪枚举信息。已被台词引用时返回 409,需先解除引用")
-def delete_emotion(emotion_id: int, db: Session = Depends(get_db), emotion_service: EmotionService = Depends(get_emotion_service)):
-    # 引用检查:emotion 是全局枚举,被 lines 表引用,任意删除会产生孤儿引用
-    referenced = db.execute(select(LinePO.id).where(LinePO.emotion_id == emotion_id).limit(1)).first()
-    if referenced:
-        raise HTTPException(status_code=409, detail="该情绪枚举已被台词引用,无法删除,请先解除引用")
+def delete_emotion(emotion_id: int, emotion_service: EmotionService = Depends(get_emotion_service)):
+    # 引用检查已移至 service 层,确保检查与删除在同一事务中
     success = emotion_service.delete_emotion(emotion_id)
     if success:
         return Res(data=None, code=200, message="删除成功")
     else:
-        return Res(data=None, code=400, message="删除失败或情绪枚举不存在")
+        raise HTTPException(status_code=409, detail="该情绪枚举已被台词引用或不存在,无法删除")
 
 
 

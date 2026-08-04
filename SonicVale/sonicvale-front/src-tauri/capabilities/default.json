@@ -19,11 +19,10 @@
         { "path": "$RESOURCE/**" },
         { "path": "$APPDATA/sonicvale/**" },
         { "path": "$DOCUMENT/SonicVale/**" },
-        { "path": "$HOME/SonicVale/**" },
-        { "path": "$HOME/**" }
+        { "path": "$HOME/SonicVale/**" }
       ]
     },
-    "os:allow-home-dir",
+    "os:default",
     "log:default"
   ]
 }

@@ -16,14 +16,9 @@ from app.entity.chapter_entity import ChapterEntity
 from app.entity.project_entity import ProjectEntity
 from app.models.po import ChapterPO
 from app.repositories.chapter_repository import ChapterRepository
-from app.repositories.line_repository import LineRepository
-from app.repositories.llm_provider_repository import LLMProviderRepository
-from app.repositories.role_repository import RoleRepository
-from app.repositories.tts_provider_repository import TTSProviderRepository
 from app.services.chapter_service import ChapterService
 from app.services.project_service import ProjectService
 from app.repositories.project_repository import ProjectRepository
-from app.services.role_service import RoleService
 
 # 初始化 router
 router = APIRouter(prefix="/projects", tags=["Projects"])
@@ -38,10 +33,6 @@ def get_chapter_service(db: Session = Depends(get_db)) -> ChapterService:
     repository = ChapterRepository(db)  # ✅ 传入 db
     return ChapterService(repository)
 
-def get_role_service(db: Session = Depends(get_db)) -> RoleService:
-    repository = RoleRepository(db)  # ✅ 传入 db
-    return RoleService(repository)
-
 
 @router.post("/", response_model=Res[ProjectResponseDTO],
              summary="创建项目",
@@ -54,15 +45,15 @@ def create_project(dto: ProjectCreateDTO, service: ProjectService = Depends(get_
     """
     try:
         # DTO → Entity
-        entity = ProjectEntity(**dto.__dict__)
+        entity = ProjectEntity(**dto.model_dump())
 
         # 调用 Service 创建项目（返回 True/False）
-        entityRes,message = service.create_project(entity)
+        entity_res,message = service.create_project(entity)
 
         # 返回统一 Response
-        if entityRes is not None:
+        if entity_res is not None:
             # 创建成功，可以返回 DTO 或者部分字段
-            res = ProjectResponseDTO(**entityRes.__dict__)
+            res = ProjectResponseDTO(**entity_res.__dict__)
             return Res(data=res, code=200, message="创建成功")
         else:
             return Res(data=None, code=400, message=message)
@@ -102,7 +93,7 @@ def update_project(project_id: int, dto: ProjectCreateDTO, service: ProjectServi
     if not project:
         return Res(data=None, code=400, message="项目不存在")
 
-    success = service.update_project(project_id,dto.dict(exclude_unset=True))
+    success = service.update_project(project_id,dto.model_dump(exclude_unset=True))
     if success:
         updated_project = service.get_project(project_id)
         return Res(data=ProjectResponseDTO(**updated_project.__dict__), code=200, message="更新成功")
@@ -114,7 +105,7 @@ def update_project(project_id: int, dto: ProjectCreateDTO, service: ProjectServi
 @router.delete("/{project_id}", response_model=Res,
                summary="删除项目",
                description="根据项目ID删除项目,并且级联删除项目下所有章节以及内容")
-def delete_project(project_id: int, service: ProjectService = Depends(get_service), chapter_service: ChapterService = Depends(get_chapter_service),role_service: RoleService = Depends(get_role_service)):
+def delete_project(project_id: int, service: ProjectService = Depends(get_service)):
 
     try:
         # 1. 先查项目,不存在直接返回 404
@@ -137,22 +128,7 @@ def delete_project(project_id: int, service: ProjectService = Depends(get_servic
         except ValueError as e:
             return Res(data=None, code=400, message=f"项目路径非法,拒绝删除")
 
-        # 3. DB 操作:先删除章节(级联台词)、角色,最后删除项目本身
-        #    每个 service 调用各自 commit;若中间失败记日志继续,保证最终项目记录被删
-        chapters = chapter_service.get_all_chapters(project_id)
-        for chapter in chapters:
-            try:
-                chapter_service.delete_chapter(chapter.id)
-            except Exception as e:
-                logging.exception("删除章节 %s 失败(继续删除其他章节): %s", chapter.id, e)
-
-        roles = role_service.get_all_roles(project_id)
-        for role in roles:
-            try:
-                role_service.delete_role(role.id)
-            except Exception as e:
-                logging.exception("删除角色 %s 失败(继续): %s", role.id, e)
-
+        # 3. DB 操作:由 service 层统一级联删除章节(及台词)、角色和项目本身
         success = service.delete_project(project_id)
         if not success:
             return Res(data=None, code=400, message="删除失败或项目不存在")

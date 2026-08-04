@@ -115,11 +115,16 @@ _SYSTEM_CRITICAL_DIRS = [
     # Windows
     r"c:\windows", r"c:\program files", r"c:\program files (x86)",
     r"c:\programdata", r"c:\windows\system32", r"c:\$recycle.bin",
+    r"c:\users",
     # Unix
     "/etc", "/usr", "/bin", "/sbin", "/boot", "/lib", "/lib64", "/dev", "/proc", "/sys",
+    "/var", "/root",
     # macOS
     "/system", "/library", "/applications",
 ]
+
+# 仅阻断精确匹配的目录(子目录允许读写,如 c:\users\<user>\... 为正常用户数据)
+_EXACT_MATCH_ONLY_DIRS = {os.path.normcase(d) for d in [r"c:\users"]}
 
 
 def assert_path_not_system_critical(path: str) -> None:
@@ -137,7 +142,14 @@ def assert_path_not_system_critical(path: str) -> None:
     norm = os.path.normcase(real)
     for critical in _SYSTEM_CRITICAL_DIRS:
         c_norm = os.path.normcase(critical)
-        if norm == c_norm or norm.startswith(c_norm + os.sep):
-            raise ValueError(
-                f"安全限制:路径 '{path}' 指向系统关键目录,禁止操作"
-            )
+        if c_norm in _EXACT_MATCH_ONLY_DIRS:
+            # c:\users 等目录仅阻断精确匹配,允许子目录读写
+            if norm == c_norm:
+                raise ValueError(
+                    f"安全限制:路径 '{path}' 指向系统关键目录,禁止操作"
+                )
+        else:
+            if norm == c_norm or norm.startswith(c_norm + os.sep):
+                raise ValueError(
+                    f"安全限制:路径 '{path}' 指向系统关键目录,禁止操作"
+                )

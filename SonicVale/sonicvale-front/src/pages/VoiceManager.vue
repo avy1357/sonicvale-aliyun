@@ -67,6 +67,8 @@
       :header-cell-style="headerCellStyle"
       :cell-style="cellStyle"
       :row-key="(row, index) => {
+        // 对 undefined/null 数据兜底,避免访问属性抛错
+        if (!row) return 'fb-empty'
         if (currentProviderType === 'volcano') return row.SpeakerID ?? `fb-${index}`;
         if (currentProviderType === 'aliyun') return row.voice_id || row.VoiceId || row.voiceId || row.id || `fb-${index}`;
         return row.id ?? `fb-${index}`;
@@ -1177,6 +1179,10 @@ async function handleWaveConfirm(payload) {
 }
 
 function toFileUrl(p) {
+  if (!window.native?.pathToFileUrl) {
+    console.warn('当前环境不支持路径转文件URL')
+    return ''
+  }
   try { return native.pathToFileUrl(p) } catch { return '' }
 }
 
@@ -1253,7 +1259,12 @@ async function handleBatchDelete() {
 }
 
 onMounted(async () => {
-  await loadTTS()
+  try {
+    await loadTTS()
+  } catch (e) {
+    console.error('加载TTS引擎失败:', e)
+    ElMessage.error('加载TTS引擎失败')
+  }
 })
 
 const tagSelectRef = ref(null)

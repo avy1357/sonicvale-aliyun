@@ -11,7 +11,8 @@ from sqlalchemy.orm import Session
 from fastapi import APIRouter, Depends, HTTPException, Form
 
 
-from app.core.path_security import assert_path_not_system_critical
+from app.core.config import getConfigPath
+from app.core.path_security import assert_path_not_system_critical, validate_path_within_root
 from app.core.response import Res
 from app.core.text_correct_engine import TextCorrectorFinal
 from app.core.ws_manager import manager
@@ -40,6 +41,8 @@ from app.services.prompt_service import PromptService
 from app.services.role_service import RoleService
 from app.services.strength_service import StrengthService
 from app.services.voice_service import VoiceService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/chapters", tags=["Chapters"])
 
@@ -94,18 +97,18 @@ async def create_chapter(dto: ChapterCreateDTO, chapter_service: ChapterService 
     """创建章节"""
     try:
         # DTO → Entity
-        entity = ChapterEntity(**dto.__dict__)
+        entity = ChapterEntity(**dto.model_dump())
         # 判断project_id是否存在
         project = project_service.get_project(dto.project_id)
         if project is None:
             return Res(data=None, code=400, message=f"项目 '{dto.project_id}' 不存在")
         # 调用 Service 创建项目（返回 True/False）
-        entityRes = chapter_service.create_chapter(entity)
+        entity_res = chapter_service.create_chapter(entity)
 
         # 返回统一 Response
-        if entityRes is not None:
+        if entity_res is not None:
             # 创建成功，可以返回 DTO 或者部分字段
-            res = ChapterResponseDTO(**entityRes.__dict__)
+            res = ChapterResponseDTO(**entity_res.__dict__)
             return Res(data=res, code=200, message="创建成功")
         else:
             return Res(data=None, code=400, message=f"章节 '{entity.title}' 已存在")
@@ -143,7 +146,7 @@ async def update_chapter(chapter_id: int, dto: ChapterCreateDTO, chapter_service
     chapter = chapter_service.get_chapter(chapter_id)
     if chapter is None:
         return Res(data=None, code=404, message="章节不存在")
-    res = chapter_service.update_chapter(chapter_id, dto.dict(exclude_unset=True, exclude={"project_id"}))
+    res = chapter_service.update_chapter(chapter_id, dto.model_dump(exclude_unset=True, exclude={"project_id"}))
     if res:
         updated_chapter = chapter_service.get_chapter(chapter_id)
         return Res(data=ChapterResponseDTO(**updated_chapter.__dict__), code=200, message="修改成功")
@@ -165,7 +168,8 @@ async def delete_chapter(chapter_id: int, chapter_service: ChapterService = Depe
 
 
 # 根据内容进行解析得到json,初次解析，然后可编辑角色昵称以及内容，以及可以合并上下或者增加。（json都是多条，角色+台词）
-@router.get(
+# 注意:此接口会写入数据库(解析并保存台词),按 RESTful 语义不应使用 GET,改为 POST
+@router.post(
     "/get-lines/{project_id}/{chapter_id}",
     response_model=Res[str],
     summary="根据内容进行解析得到json",
@@ -192,9 +196,9 @@ async def get_lines(
         contents = chapter_service.split_text(chapter_id, 1500)
         if not contents:
             return Res(data=None, code=400, message="章节内容为空或拆分后无有效段落")
-        logging.info("内容划分为 %s 段", len(contents))
+        logger.info("内容划分为 %s 段", len(contents))
     except Exception as e:
-        logging.error(f"章节拆分失败: {e}\n{traceback.format_exc()}")
+        logger.error(f"章节拆分失败: {e}\n{traceback.format_exc()}")
         return Res(data=None, code=500, message="章节拆分失败")
 
     all_line_data = []
@@ -210,7 +214,7 @@ async def get_lines(
         emotions_dict = {emotion.name: emotion.id for emotion in emotions}
         strengths_dict = {strength.name: strength.id for strength in strengths}
     except Exception as e:
-        logging.error(f"初始化角色/情绪/强度失败: {e}\n{traceback.format_exc()}")
+        logger.error(f"初始化角色/情绪/强度失败: {e}\n{traceback.format_exc()}")
         return Res(data=None, code=500, message="初始化角色/情绪/强度失败")
 
     project = project_service.get_project(project_id)
@@ -228,7 +232,7 @@ async def get_lines(
         return Res(data=None, code=500, message="提示词不存在")
 
     for idx, content in enumerate(contents):
-        logging.info(f"解析第 {idx + 1}/{len(contents)} 段...")
+        logger.info(f"解析第 {idx + 1}/{len(contents)} 段...")
 
         try:
             roles_list = list(roles)
@@ -252,25 +256,26 @@ async def get_lines(
             all_line_data.extend(lines_data)
 
         except Exception as e:
-            logging.error(
+            logger.error(
                 f"解析第 {idx + 1} 段失败: {e}\n{traceback.format_exc()}"
             )
             return Res(data=None, code=500, message=f"解析失败：第 {idx + 1} 段处理出错")
 
     try:
         audio_path = os.path.join(project.project_root_path,str(project_id),str(chapter_id),"audio")
-        # 运行时再次校验路径不指向系统关键目录
+        # 路径白名单校验:防止路径穿越,确保音频目录在允许的根目录下
         try:
+            audio_path = validate_path_within_root(audio_path, getConfigPath())
             assert_path_not_system_critical(audio_path)
         except ValueError as e:
-            logging.warning("拒绝创建音频目录,路径非法: %s", audio_path)
+            logger.warning("拒绝创建音频目录,路径非法: %s", audio_path)
             return Res(data=None, code=400, message="项目根路径非法,拒绝操作")
         os.makedirs(audio_path, exist_ok=True)
         line_service.update_init_lines(
             all_line_data, project_id, chapter_id, emotions_dict, strengths_dict,audio_path
         )
     except Exception as e:
-        logging.error(f"写入数据库失败: {e}\n{traceback.format_exc()}")
+        logger.error(f"写入数据库失败: {e}\n{traceback.format_exc()}")
         return Res(data=None, code=500, message="写入数据库失败")
 
     return Res(data=None, code=200, message="解析成功")
@@ -310,6 +315,8 @@ async def export_llm_prompt(project_id:int,chapter_id: int, chapter_service: Cha
     return Res(data=res, code=200, message="导出成功")
 
 # 解析第三方的json
+# 注意:此接口使用 Form 字段接收 JSON 字符串(而非 application/json body),
+# 这是为了兼容前端 multipart/form-data 上传场景,后续前端改造后可改为 JSON body
 @router.post("/import-lines/{project_id}/{chapter_id}",response_model=Res[str],summary="导入第三方json",description="导入第三方json")
 async def import_lines(project_id: int,chapter_id: int,data:str=Form( ...),line_service: LineService = Depends(get_line_service),
                        emotion_service: EmotionService = Depends(get_emotion_service),
@@ -353,52 +360,20 @@ async def import_lines(project_id: int,chapter_id: int,data:str=Form( ...),line_
 
 
     audio_path = os.path.join(project.project_root_path,str(project_id),str(chapter_id),"audio")
-    # 运行时再次校验路径不指向系统关键目录
+    # 路径白名单校验:防止路径穿越,确保音频目录在允许的根目录下
     try:
+        audio_path = validate_path_within_root(audio_path, getConfigPath())
         assert_path_not_system_critical(audio_path)
     except ValueError as e:
-        logging.warning("拒绝创建音频目录,路径非法: %s", audio_path)
+        logger.warning("拒绝创建音频目录,路径非法: %s", audio_path)
         return Res(data=None, code=400, message="项目根路径非法,拒绝操作")
     os.makedirs(audio_path, exist_ok=True)
     line_service.update_init_lines(lines_data, project_id, chapter_id, emotions_dict, strengths_dict,audio_path)
     return Res(data=None, code=200, message="导入成功")
 
 
-
-# @router.post("/save-init-lines/{project_id}/{chapter_id}",response_model=Res[str],summary="保存初始化调整后的解析内容",description="保存初始化调整后的解析内容")
-# async def update_init_lines(project_id: int,chapter_id: int,lines: List[LineInitDTO], chapter_service: ChapterService = Depends(get_chapter_service)):
-#     chapter_service.update_init_lines(lines,project_id,chapter_id)
-#     return Res(data=None, code=200, message="保存成功")
-
-# 绑定音色就是采用的修改角色信息
-
-# 获取章节下所有台词
-
-
-
-# 传入台词实体，然后生成音频
-# @router.post("/generate-audio/{project_id}/{chapter_id}",response_model=Res[str],summary="生成音频",description="生成音频")
-# async def generate_audio(project_id: int,chapter_id: int,
-#                          dto: LineCreateDTO, chapter_service: ChapterService = Depends(get_chapter_service),
-#                          voice_service: VoiceService = Depends(get_voice_service),
-#                          role_service: RoleService = Depends(get_role_service),
-#                          project_service: ProjectService = Depends(get_project_service)):
-#     """生成音频"""
-#     # 获取角色绑定的音色的reference_path
-#     role = role_service.get_role(dto.role_id)
-#     voice = voice_service.get_voice(role.default_voice_id)
-#     project = project_service.get_project(project_id)
-#     save_path = dto.audio_path
-#     res = chapter_service.generate_audio(voice.reference_path,project.tts_provider_id,dto.text_content,save_path=save_path)
-#     return Res(data=None, code=200, message="生成成功")
-
-# 合并结果并导出
-# @router.get("/export-audio/{project_id}/{chapter_id}",response_model=Res[str],summary="合并结果并导出",description="合并结果并导出")
-# async def export_audio(project_id: int,chapter_id: int, chapter_service: ChapterService = Depends(get_chapter_service))
-#     res = chapter_service.export_audio(project_id,chapter_id)
-
 # 添加智能匹配角色和音色的功能
-@router.post("/add-smart-role-and-voice/{project_id}/{chapter_id}",response_model=Res[List],summary="添加智能匹配角色和音色的功能",description="添加智能匹配角色和音色的功能")
+@router.post("/add-smart-role-and-voice/{project_id}/{chapter_id}",response_model=Res[List[dict]],summary="添加智能匹配角色和音色的功能",description="添加智能匹配角色和音色的功能")
 async def add_smart_role_and_voice(project_id: int,chapter_id: int,
                                    chapter_service: ChapterService = Depends(get_chapter_service),
                                    project_service: ProjectService = Depends(get_project_service),

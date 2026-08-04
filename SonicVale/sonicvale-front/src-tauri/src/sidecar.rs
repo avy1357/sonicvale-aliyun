@@ -12,19 +12,25 @@ const BACKEND_HOST: &str = "127.0.0.1";
 const BACKEND_PORT: u16 = 8200;
 const BACKEND_HEALTH_PATH: &str = "/docs";
 
-/// 获取后端 main.exe 路径
+// 后端可执行文件名按平台区分,避免硬编码 .exe 导致跨平台失效
+#[cfg(target_os = "windows")]
+const BACKEND_EXE: &str = "main.exe";
+#[cfg(not(target_os = "windows"))]
+const BACKEND_EXE: &str = "main";
+
+/// 获取后端可执行文件路径
 /// 优先使用 resource_dir(生产环境),回退到 CARGO_MANIFEST_DIR(开发环境)
 fn get_backend_path(app_handle: &AppHandle) -> PathBuf {
     if let Ok(rd) = app_handle.path().resource_dir() {
-        let p = rd.join("main.exe");
+        let p = rd.join(BACKEND_EXE);
         if p.exists() {
             return p;
         }
     }
-    // dev 回退:src-tauri/resources/main.exe
+    // dev 回退:src-tauri/resources/<backend_exe>
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("resources")
-        .join("main.exe")
+        .join(BACKEND_EXE)
 }
 
 /// 启动后端进程,返回子进程句柄
@@ -52,6 +58,8 @@ pub fn start_backend(app_handle: &AppHandle) -> std::io::Result<Child> {
         .spawn()?;
 
     // 转发 stdout
+    // 注:此转发线程目前没有显式退出机制,依赖子进程 stdout 关闭后 reader.lines() 自然结束
+    // 若未来需要主动停止,可在 BackendState 中保存停止标志并在此处轮询
     if let Some(stdout) = child.stdout.take() {
         std::thread::spawn(move || {
             let reader = BufReader::new(stdout);
@@ -61,6 +69,7 @@ pub fn start_backend(app_handle: &AppHandle) -> std::io::Result<Child> {
         });
     }
     // 转发 stderr
+    // 注:同上,依赖子进程 stderr 关闭后自然退出
     if let Some(stderr) = child.stderr.take() {
         std::thread::spawn(move || {
             let reader = BufReader::new(stderr);
@@ -110,8 +119,8 @@ fn check_backend_ready() -> bool {
     match stream.read(&mut buf) {
         Ok(n) if n > 0 => {
             let resp = String::from_utf8_lossy(&buf[..n]);
-            // 只要有 HTTP 响应即视为就绪(含 200/302/404 都说明服务起来了)
-            resp.starts_with("HTTP/")
+            // 校验响应行包含 200 状态码,避免后端端口被其他服务占用造成误判
+            resp.starts_with("HTTP/1.0 200") || resp.starts_with("HTTP/1.1 200")
         }
         _ => false,
     }

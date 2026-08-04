@@ -20,7 +20,7 @@ class LLMEngine:
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")  # 去掉末尾斜杠
         self.model_name = model_name
-        
+
         # custom_params从string转为dict，添加异常处理
         # 注意:custom_params 可能为 None,需同时捕获 TypeError
         try:
@@ -35,12 +35,29 @@ class LLMEngine:
                 "top_p": 0.9
             }
         self.custom_params = custom_params
-        
+
         # 使用新版 OpenAI 客户端
         self.client = OpenAI(
             api_key=api_key,
             base_url=self.base_url
         )
+
+    def __repr__(self) -> str:
+        # 隐藏 api_key,避免日志/调试输出泄露凭据
+        return f"LLMEngine(model_name={self.model_name!r}, base_url={self.base_url!r})"
+
+    # 允许透传给 OpenAI API 的自定义参数白名单
+    _ALLOWED_CUSTOM_PARAMS = (
+        "temperature", "top_p", "max_tokens", "response_format",
+        "presence_penalty", "frequency_penalty", "seed",
+    )
+
+    def _filter_custom_params(self) -> dict:
+        """白名单过滤 custom_params,仅透传允许的参数,避免误传非法字段"""
+        return {
+            k: v for k, v in self.custom_params.items()
+            if k in self._ALLOWED_CUSTOM_PARAMS and v is not None
+        }
 
     def _extract_result_tag(self, text: str) -> str:
         """提取 <result> 标签内容"""
@@ -57,7 +74,7 @@ class LLMEngine:
             model=self.model_name,
             messages=[{"role": "user", "content": prompt}],
             timeout=120,
-            **self.custom_params
+            **self._filter_custom_params()
         )
         # 访问 choices 前校验非空,避免 IndexError
         if not response.choices:
@@ -83,7 +100,7 @@ class LLMEngine:
                     messages=[{"role": "user", "content": prompt}],
                     stream=False,
                     timeout=120,
-                    **self.custom_params
+                    **self._filter_custom_params()
                 )
 
                 # 访问 choices 前校验非空,避免 IndexError

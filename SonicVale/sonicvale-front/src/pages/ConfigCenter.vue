@@ -535,6 +535,8 @@ const ttsForm = ref({
   x_api_key: '',
   voice_type: '',
   resource_id: '',
+  access_key_id: '',
+  access_key_secret: '',
   voice_clone_appid: '',
   status: 1,
 })
@@ -562,11 +564,7 @@ const onTtsTypeChange = () => {
 }
 
 // 阿里云现在使用 DashScope API Key，不需要拆分/组合
-// 保留这两个 ref 以兼容火山引擎的逻辑
-const parseAliyunKey = () => {
-  // 阿里云现在直接使用 DashScope API Key，无需拆分
-  // api_key 直接存储完整的 DashScope API Key
-}
+// 保留 parseApiKey/buildApiKey 中的 aliyun 分支仅做直接 return
 
 const parseApiKey = () => {
   if (ttsForm.value.provider_type === 'volcano') {
@@ -579,7 +577,8 @@ const parseApiKey = () => {
       ttsForm.value.access_key_secret = ''
     }
   } else {
-    parseAliyunKey()
+    // aliyun:直接使用 DashScope API Key,无需拆分
+    return
   }
 }
 
@@ -593,16 +592,12 @@ const buildVolcanoKey = () => {
   }
 }
 
-const buildAliyunKey = () => {
-  // 阿里云现在直接使用 DashScope API Key，无需组合
-  // ttsForm.value.api_key 已经在表单中直接绑定
-}
-
 const buildApiKey = () => {
   if (ttsForm.value.provider_type === 'volcano') {
     buildVolcanoKey()
   } else {
-    buildAliyunKey()
+    // aliyun:直接使用 DashScope API Key,无需组合
+    return
   }
 }
 
@@ -629,6 +624,8 @@ function openTTSDialog(row) {
       x_api_key: '',
       voice_type: '',
       resource_id: '',
+      access_key_id: '',
+      access_key_secret: '',
       voice_clone_appid: '',
       status: 1,
     }

@@ -9,6 +9,7 @@ from dashscope.audio.tts_v2 import SpeechSynthesizer
 # 必须与 aliyun_voice_manager_client 共用同一把锁,否则两个客户端并发调用时
 # 仍会竞态修改 dashscope.api_key 全局变量
 from app.core.aliyun_voice_manager_client import _dashscope_lock
+from app.core.exceptions import TTSError, RETRYABLE_NETWORK_EXCEPTIONS
 
 
 class AliyunTTSClient:
@@ -52,6 +53,10 @@ class AliyunTTSClient:
         logging.info("阿里云 CosyVoice TTS 客户端初始化成功，模型: %s, 默认音色: %s",
                      self.model, self.voice)
 
+    def __repr__(self) -> str:
+        # 隐藏 api_key,避免日志/调试输出泄露凭据
+        return f"AliyunTTSClient(model={self.model!r}, voice={self.voice!r})"
+
     def synthesize(self, text: str, voice: Optional[str] = None,
                    audio_format: str = "wav",
                    sample_rate: int = None,
@@ -80,17 +85,17 @@ class AliyunTTSClient:
                 return self._do_synthesize(text, target_voice, audio_format, target_sample_rate,
                                            instruction=instruction, volume=volume,
                                            speech_rate=speech_rate, pitch_rate=pitch_rate)
-            except (ConnectionError, TimeoutError, OSError) as e:
-                # 仅对网络异常重试,其他异常直接向上抛出
+            except RETRYABLE_NETWORK_EXCEPTIONS as e:
+                # 仅对可重试的网络异常重试,其他异常直接向上抛出
                 if attempt < self.MAX_RETRIES - 1:
                     logging.warning("阿里云 CosyVoice 合成失败，第 %d 次重试: %s",
                                     attempt + 1, str(e))
                     time.sleep(self.RETRY_DELAY * (2 ** attempt))
                 else:
                     logging.exception("阿里云 CosyVoice 合成失败，已达到最大重试次数")
-                    raise Exception(f"阿里云 CosyVoice 合成失败: {str(e)}") from e
+                    raise TTSError(f"阿里云 CosyVoice 合成失败: {str(e)}") from e
 
-        raise Exception("阿里云 CosyVoice 合成失败")
+        raise TTSError("阿里云 CosyVoice 合成失败")
 
     def _do_synthesize(self, text: str, voice: str,
                        audio_format: str, sample_rate: int,

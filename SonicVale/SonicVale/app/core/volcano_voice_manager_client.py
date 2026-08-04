@@ -6,7 +6,8 @@ import hmac
 import json
 import datetime
 from typing import Optional, List
-from urllib.parse import quote
+
+from app.core.exceptions import RETRYABLE_NETWORK_EXCEPTIONS, VolcanoAPIError
 
 
 class VolcanoVoiceManagerClient:
@@ -29,6 +30,10 @@ class VolcanoVoiceManagerClient:
         self.session = requests.Session()
 
         logging.info("火山引擎音色管理客户端初始化成功，appid: %s", self.appid)
+
+    def __repr__(self) -> str:
+        # 隐藏 access_key_id/access_key_secret,避免日志/调试输出泄露凭据
+        return f"VolcanoVoiceManagerClient(appid={self.appid!r})"
 
     def _sign_request(self, method: str, action: str, body: str) -> dict:
         now = datetime.datetime.now(datetime.timezone.utc)
@@ -110,17 +115,20 @@ class VolcanoVoiceManagerClient:
                 response_metadata = result.get("ResponseMetadata", {})
                 if "Error" in response_metadata:
                     error = response_metadata["Error"]
-                    raise Exception(f"API错误: {error.get('Code', 'Unknown')} - {error.get('Message', '未知错误')}")
+                    # 改用 VolcanoAPIError 异常类
+                    raise VolcanoAPIError(f"API错误: {error.get('Code', 'Unknown')} - {error.get('Message', '未知错误')}")
 
                 return result
 
-            except (ConnectionError, TimeoutError, OSError) as e:
+            except RETRYABLE_NETWORK_EXCEPTIONS as e:
                 if attempt < self.MAX_RETRIES - 1:
                     logging.warning("请求失败，第 %d 次重试: %s", attempt + 1, str(e))
                     time.sleep(self.RETRY_DELAY * (2 ** attempt))
                 else:
                     logging.exception("请求失败，已达到最大重试次数")
                     raise
+        # for 循环正常结束(未 return)时显式抛出,避免隐式返回 None
+        raise RuntimeError("请求失败: 重试耗尽")
 
     def batch_list_train_status(
         self,

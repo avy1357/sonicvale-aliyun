@@ -105,6 +105,8 @@ class VolcanoVoiceManagerService:
 
         - 整体作为一个事务,任一页失败则回滚,保证数据一致性
         """
+        # 注意:此处直接操作 PO 绕过 Repository,是为了批量同步效率
+        # 后续应考虑将同步逻辑下沉到 Repository 层
         client = self._get_volcano_client(tts_provider_id)
 
         page_number = 1
@@ -165,6 +167,8 @@ class VolcanoVoiceManagerService:
 
         - 提交失败时回滚,保证数据一致性
         """
+        # 注意:此处直接操作 PO 绕过 Repository,是为了批量同步效率
+        # 后续应考虑将同步逻辑下沉到 Repository 层
         client = self._get_volcano_client(tts_provider_id)
         result = client.batch_list_train_status(
             speaker_ids=[speaker_id],

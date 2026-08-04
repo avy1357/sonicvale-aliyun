@@ -1,14 +1,12 @@
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.response import Res
 from app.db.database import get_db
 from app.dto.strength_dto import StrengthResponseDTO, StrengthCreateDTO
 from app.entity.strength_entity import StrengthEntity
-from app.models.po import LinePO
 
 from app.repositories.strength_repository import StrengthRepository
 
@@ -30,15 +28,15 @@ def create_strength(dto: StrengthCreateDTO, strength_service: StrengthService = 
     """创建情绪强弱枚举"""
     try:
         # DTO → Entity
-        entity = StrengthEntity(**dto.__dict__)
+        entity = StrengthEntity(**dto.model_dump())
 
         # 调用 Service 创建项目（返回 True/False）
-        entityRes = strength_service.create_strength(entity)
+        entity_res = strength_service.create_strength(entity)
 
         # 返回统一 Response
-        if entityRes is not None:
+        if entity_res is not None:
             # 创建成功，可以返回 DTO 或者部分字段
-            res = StrengthResponseDTO(**entityRes.__dict__)
+            res = StrengthResponseDTO(**entity_res.__dict__)
             return Res(data=res, code=200, message="创建成功")
         else:
             return Res(data=None, code=400, message=f"情绪强弱枚举 '{entity.name}' 已存在")
@@ -69,14 +67,14 @@ def get_all_strengths(strength_service: StrengthService = Depends(get_strength_s
         return Res(data=[], code=200, message="查询成功")
 
 # 修改，传入的参数是id
-@router.put("/{strength_id}", response_model=Res[StrengthCreateDTO],
+@router.put("/{strength_id}", response_model=Res[StrengthResponseDTO],
             summary="修改情绪强弱枚举信息",
             description="根据情绪强弱枚举id修改情绪强弱枚举信息,并且不能修改项目id")
 def update_strength(strength_id: int, dto: StrengthCreateDTO, strength_service: StrengthService = Depends(get_strength_service)):
     strength = strength_service.get_strength(strength_id)
     if strength is None:
         return Res(data=None, code=404, message="情绪强弱枚举不存在")
-    res = strength_service.update_strength(strength_id, dto.dict(exclude_unset=True))
+    res = strength_service.update_strength(strength_id, dto.model_dump(exclude_unset=True))
     if res:
         # 返回更新后的实体,而非入参 dto
         updated = strength_service.get_strength(strength_id)
@@ -89,16 +87,13 @@ def update_strength(strength_id: int, dto: StrengthCreateDTO, strength_service: 
 @router.delete("/{strength_id}", response_model=Res,
                summary="删除情绪强弱枚举",
                description="根据情绪强弱枚举id删除情绪强弱枚举信息。已被台词引用时返回 409,需先解除引用")
-def delete_strength(strength_id: int, db: Session = Depends(get_db), strength_service: StrengthService = Depends(get_strength_service)):
-    # 引用检查:strength 是全局枚举,被 lines 表引用,任意删除会产生孤儿引用
-    referenced = db.execute(select(LinePO.id).where(LinePO.strength_id == strength_id).limit(1)).first()
-    if referenced:
-        raise HTTPException(status_code=409, detail="该情绪强弱枚举已被台词引用,无法删除,请先解除引用")
+def delete_strength(strength_id: int, strength_service: StrengthService = Depends(get_strength_service)):
+    # 引用检查已移至 service 层,确保检查与删除在同一事务中
     success = strength_service.delete_strength(strength_id)
     if success:
         return Res(data=None, code=200, message="删除成功")
     else:
-        return Res(data=None, code=400, message="删除失败或情绪强弱枚举不存在")
+        raise HTTPException(status_code=409, detail="该情绪强弱枚举已被台词引用或不存在,无法删除")
 
 
 

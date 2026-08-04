@@ -19,6 +19,8 @@ service.interceptors.request.use(
 service.interceptors.response.use(
   response => response.data,
   error => {
+    // 仅打印错误日志,不在此处统一弹出 ElMessage,避免每个 API 调用都弹消息造成干扰
+    // 业务层应根据各自场景决定是否提示用户
     console.error('API Error:', error)
     return Promise.reject(error)
   }

@@ -14,6 +14,7 @@ def generate_subtitle(audio_file,save_path):
 # 字幕矫正
 import re
 import difflib
+import json
 import shutil
 import logging
 from pypinyin import lazy_pinyin
@@ -157,7 +158,7 @@ def correct_srt_file(original_text: str, srt_path: str,
     original_text: 原始完整文本（直接传字符串）
     srt_path: 输入字幕文件路径
     overwrite: 是否覆盖原文件（默认 True）
-    backup: 覆盖时是否先生成 .bak 文件（默认 True）
+    backup: 覆盖时是否先生成 .bak 文件（默认 False）
     out_path: 如果不覆盖，可以指定输出文件路径
     """
     original_full = original_text.replace("\r", "").replace("\n", "").strip()
@@ -243,18 +244,22 @@ def correct_srt_file_with_llm(
         try:
             response = llm_engine.generate_text(prompt)
             corrected_batch = llm_engine.save_load_json(response)
-            
-            # 构建索引映射
-            corrected_map = {item["index"]: item["corrected_text"] for item in corrected_batch}
-            
+
+            # 构建索引映射,使用 .get() 跳过缺失 corrected_text 的项,避免 KeyError
+            corrected_map = {
+                item["index"]: item.get("corrected_text")
+                for item in corrected_batch
+                if "index" in item and item.get("corrected_text") is not None
+            }
+
             # 处理当前批次的结果
             for idx, ts, original_txt in batch_entries:
                 corrected_text = corrected_map.get(idx, original_txt)
                 # 清理文本
                 corrected_text = clean_subtitle_text(corrected_text)
                 corrected_entries.append((idx, ts, corrected_text))
-                
-        except Exception as e:
+
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
             logging.error("批次 %d 矫正失败，使用原始文本: %s", batch_idx + 1, str(e))
             # 失败时保留原始文本
             for idx, ts, txt in batch_entries:

@@ -314,7 +314,7 @@ const loadClones = async () => {
     }
   } else {
     const res = await fetchVoiceClones(currentTtsId.value)
-    cloneList.value = res.data || []
+    cloneList.value = res?.code === 200 ? (res.data || []) : []
   }
 }
 
@@ -369,18 +369,11 @@ const handleSyncSingle = async (row) => {
 }
 
 const openCreateDialog = () => {
-  if (currentProviderType.value === 'aliyun') {
-    createForm.value = {
-      name: '', speaker_id: '', model_type: 1, language: 0, description: '',
-      target_model: 'cosyvoice-v3-plus', prefix: '', url: '',
-      language_hints: [], max_prompt_audio_length: 10, enable_preprocess: false
-    }
-  } else {
-    createForm.value = {
-      name: '', speaker_id: '', model_type: 1, language: 0, description: '',
-      target_model: 'cosyvoice-v3-plus', prefix: '', url: '',
-      language_hints: [], max_prompt_audio_length: 10, enable_preprocess: false
-    }
+  // 两个 provider 分支初始化字段完全一致,合并为单次赋值
+  createForm.value = {
+    name: '', speaker_id: '', model_type: 1, language: 0, description: '',
+    target_model: 'cosyvoice-v3-plus', prefix: '', url: '',
+    language_hints: [], max_prompt_audio_length: 10, enable_preprocess: false
   }
   createDialogVisible.value = true
 }
@@ -481,7 +474,7 @@ const refreshStatus = async (row) => {
 const handleDelete = async (row) => {
   try {
     await ElMessageBox.confirm('确认删除该声音复刻记录？', '提示', { type: 'warning' })
-    
+
     if (currentProviderType.value === 'aliyun') {
       await deleteAliyunVoice(currentTtsId.value, row.voice_id)
     } else {
@@ -490,14 +483,20 @@ const handleDelete = async (row) => {
     ElMessage.success('已删除')
     await loadClones()
   } catch (e) {
-    if (e !== 'cancel') {
+    // ElMessageBox 取消/关闭会 reject 出 'cancel' / 'close',其他才是真正出错
+    if (e !== 'cancel' && e !== 'close') {
       ElMessage.error('删除失败')
     }
   }
 }
 
 onMounted(async () => {
-  await loadTtsProviders()
+  try {
+    await loadTtsProviders()
+  } catch (e) {
+    console.error('加载TTS提供商失败:', e)
+    ElMessage.error('加载TTS提供商失败')
+  }
 })
 </script>
 

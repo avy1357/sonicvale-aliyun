@@ -21,8 +21,7 @@
         "visible": false,
         "decorations": true,
         "fullscreen": false,
-        "center": true,
-        "icon": "icons/yingu.ico"
+        "center": true
       }
     ],
     "security": {
@@ -72,7 +71,7 @@
           "cmd": "explorer.exe",
           "args": [
             {
-              "validator": "^[A-Za-z]:[\\\\/].*(SonicVale|Documents|sonicvale|documents).*"
+              "validator": "^[A-Za-z]:[\\\\/](Users|home)[\\\\/][^\\\\/]+[\\\\/](SonicVale|Documents)([\\\\/].*)?"
             }
           ]
         }

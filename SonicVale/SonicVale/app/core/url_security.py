@@ -19,13 +19,14 @@ from typing import Optional
 from urllib.parse import urlparse
 
 
-# 是否允许内网地址(默认 False,仅公网)
-_ALLOW_PRIVATE = os.getenv("SVC_ALLOW_PRIVATE_URL", "").lower() in ("1", "true", "yes")
+# DNS 解析超时秒数,避免阻塞过久
+_DNS_RESOLVE_TIMEOUT = 5
 
 
 def _is_internal_ip(ip_str: str) -> bool:
     """判断 IP 字符串是否为内网/回环/保留地址"""
     try:
+        # 直接用 ipaddress.ip_address 判断,可正确处理 IPv4-mapped IPv6 等格式
         ip = ipaddress.ip_address(ip_str)
     except ValueError:
         return True  # 非 IP 视为不安全
@@ -71,8 +72,9 @@ def validate_public_url(url: str, allow_private: Optional[bool] = None) -> str:
     if host_lower == "localhost":
         raise ValueError("URL 主机名不能为 localhost")
 
-    # 检查是否允许内网
-    do_allow_private = _ALLOW_PRIVATE if allow_private is None else allow_private
+    # 检查是否允许内网(函数内读取环境变量,便于运行时调整)
+    _allow_private_env = os.getenv("SVC_ALLOW_PRIVATE_URL", "").lower() in ("1", "true", "yes")
+    do_allow_private = _allow_private_env if allow_private is None else allow_private
     if do_allow_private:
         return url
 
@@ -91,16 +93,23 @@ def validate_public_url(url: str, allow_private: Optional[bool] = None) -> str:
 
     # 域名解析为 IP 后判断
     try:
-        # 使用 getaddrinfo 获取所有解析结果,任一为内网即拒绝
-        infos = socket.getaddrinfo(host, None)
+        # 在独立线程中执行 DNS 解析并设置超时,避免 socket.setdefaulttimeout
+        # 影响进程内其他线程的 socket 默认超时(全局副作用)
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(socket.getaddrinfo, host, None)
+            try:
+                infos = future.result(timeout=_DNS_RESOLVE_TIMEOUT)
+            except concurrent.futures.TimeoutError:
+                raise ValueError(f"URL 主机名解析超时: {host}")
     except socket.gaierror as e:
         raise ValueError(f"URL 主机名解析失败: {host} ({e})")
+    except socket.timeout as e:
+        raise ValueError(f"URL 主机名解析超时: {host} ({e})")
 
     for family, _, _, _, sockaddr in infos:
         ip_str = sockaddr[0]
-        # 处理 IPv6 映射的 IPv4 地址
-        if ip_str.startswith("::ffff:"):
-            ip_str = ip_str[7:]
+        # 直接用 ipaddress.ip_address 判断,可正确处理 IPv4-mapped IPv6 等格式
         if _is_internal_ip(ip_str):
             raise ValueError(
                 f"URL 主机名 '{host}' 解析到内网/回环地址 {ip_str},已被 SSRF 防护拒绝"

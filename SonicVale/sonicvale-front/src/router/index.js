@@ -29,6 +29,11 @@ const routes = [
   { path: '/prompts',
     name: 'PromptManager',
     component:() => import('../pages/PromptManager.vue') },
+  // 404 兜底路由:未匹配的路径统一重定向到项目列表
+  {
+    path: '/:pathMatch(.*)*',
+    redirect: '/projects'
+  },
 ]
 
 const router = createRouter({

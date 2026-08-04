@@ -1,7 +1,9 @@
 from typing import Sequence
 
+from sqlalchemy import select
+
 from app.entity.emotion_entity import EmotionEntity
-from app.models.po import EmotionPO
+from app.models.po import EmotionPO, LinePO
 from app.repositories.emotion_repository import EmotionRepository
 
 
@@ -67,7 +69,16 @@ class EmotionService:
 
     def delete_emotion(self, emotion_id: int) -> bool:
         """删除情绪枚举
+        - 删除前检查是否被台词引用,被引用则禁止删除
+        - 引用检查与删除在同一 session/事务中,避免 TOCTOU
         """
+        db = self.repository.db
+        # 检查是否被台词引用
+        referenced = db.execute(
+            select(LinePO.id).where(LinePO.emotion_id == emotion_id).limit(1)
+        ).first()
+        if referenced:
+            return False
         res = self.repository.delete(emotion_id)
         return res
 

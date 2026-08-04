@@ -1,7 +1,22 @@
 # 根据小说内容生成
 
 import json
+import re
 import textwrap
+
+
+# 受保护的控制标签正则:大小写不敏感,匹配带属性/带空格/自闭合的变体
+# 覆盖 <result>、</result>、<result attr="x">、<result/> 等所有变体
+_PROTECTED_TAG_NAMES = [
+    "result", "novel_content", "possible_characters", "possible_emotions",
+    "possible_strengths", "original_text", "subtitle_lines", "json_str",
+    "role_name", "voice",
+]
+# 形如 <tag ...> 或 </tag ...> 或 <tag .../>
+_PROTECTED_TAG_PATTERN = re.compile(
+    r"</?(?:" + "|".join(_PROTECTED_TAG_NAMES) + r")\b[^>]*?/?>",
+    re.IGNORECASE,
+)
 
 
 def _sanitize_user_input(text: str) -> str:
@@ -12,22 +27,8 @@ def _sanitize_user_input(text: str) -> str:
     """
     if not isinstance(text, str):
         return str(text)
-    # 移除已知的控制标签，避免用户文本污染 prompt 结构
-    protected_tags = [
-        "<result>", "</result>",
-        "<novel_content>", "</novel_content>",
-        "<possible_characters>", "</possible_characters>",
-        "<possible_emotions>", "</possible_emotions>",
-        "<possible_strengths>", "</possible_strengths>",
-        "<original_text>", "</original_text>",
-        "<subtitle_lines>", "</subtitle_lines>",
-        "<json_str>", "</json_str>",
-        "<role_name>", "</role_name>",
-        "<voice>", "</voice>",
-    ]
-    cleaned = text
-    for tag in protected_tags:
-        cleaned = cleaned.replace(tag, "")
+    # 大小写不敏感地移除所有受保护标签的变体(含属性、自闭合、带空格等)
+    cleaned = _PROTECTED_TAG_PATTERN.sub("", text)
     return cleaned
 
 
@@ -112,7 +113,7 @@ def get_prompt_str():
     {possible_strengths}、{novel_content} 为字面量占位符,需保持原样。
     这些占位符由 ChapterService.fill_prompt 后续通过 str.replace 填充实际内容,
     因此此处不能调用 .format()(否则会因缺少参数而抛出 KeyError,
-    且会破坏 validate_prompt_with_DUBBING 对 {novel_content} 占位符的校验)。
+    且会破坏 validate_prompt_with_dubbing 对 {novel_content} 占位符的校验)。
     本函数无用户输入参数,故无需调用 _sanitize_user_input。
     """
     prompt = """
@@ -264,8 +265,12 @@ def get_subtitle_correction_prompt(original_text: str, subtitle_lines: list) -> 
     # 清理用户输入以降低 prompt 注入风险
     original_text = _sanitize_user_input(original_text)
     # 使用 json.dumps 安全构造 JSON，避免用户文本中的引号/换行破坏 JSON 结构
+    # 对每条字幕文本同样调用 _sanitize_user_input,降低 prompt 注入风险
     subtitle_json = "\n".join(
-        "  " + json.dumps({"index": item["index"], "text": item["text"]}, ensure_ascii=False)
+        "  " + json.dumps(
+            {"index": item["index"], "text": _sanitize_user_input(item["text"])},
+            ensure_ascii=False,
+        )
         for item in subtitle_lines
     )
     

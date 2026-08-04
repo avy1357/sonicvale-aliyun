@@ -6,6 +6,8 @@ import dashscope
 from typing import Optional, List
 from dashscope.audio.tts_v2 import VoiceEnrollmentService
 
+from app.core.exceptions import RETRYABLE_NETWORK_EXCEPTIONS
+
 # 保护 dashscope.api_key 全局状态的线程锁（C3: 并发安全）
 _dashscope_lock = threading.Lock()
 
@@ -53,6 +55,10 @@ class AliyunVoiceManagerClient:
             self.service = VoiceEnrollmentService()
         logging.info("阿里云音色管理客户端初始化成功")
 
+    def __repr__(self) -> str:
+        # 隐藏 api_key,避免日志/调试输出泄露凭据
+        return "AliyunVoiceManagerClient()"
+
     def list_voices(self, prefix: Optional[str] = None,
                     page_index: int = 0, page_size: int = 10) -> dict:
         """
@@ -80,13 +86,15 @@ class AliyunVoiceManagerClient:
                     total += 1
 
                 return {"voices": voices, "page_count": count, "total": total}
-            except (ConnectionError, TimeoutError, OSError) as e:
+            except RETRYABLE_NETWORK_EXCEPTIONS as e:
                 if attempt < self.MAX_RETRIES - 1:
                     logging.warning("查询音色列表失败，第 %d 次重试: %s", attempt + 1, str(e))
                     time.sleep(self.RETRY_DELAY * (2 ** attempt))
                 else:
                     logging.exception("查询音色列表失败，已达到最大重试次数")
                     raise
+        # for 循环正常结束(未 return)时显式抛出,避免隐式返回 None
+        raise RuntimeError("查询音色列表失败: 重试耗尽")
 
     def query_voice(self, voice_id: str) -> dict:
         """
@@ -101,13 +109,15 @@ class AliyunVoiceManagerClient:
                     dashscope.api_key = self.api_key
                     details = self.service.query_voice(voice_id=voice_id)
                 return details
-            except (ConnectionError, TimeoutError, OSError) as e:
+            except RETRYABLE_NETWORK_EXCEPTIONS as e:
                 if attempt < self.MAX_RETRIES - 1:
                     logging.warning("查询音色详情失败，第 %d 次重试: %s", attempt + 1, str(e))
                     time.sleep(self.RETRY_DELAY * (2 ** attempt))
                 else:
                     logging.exception("查询音色详情失败，已达到最大重试次数")
                     raise
+        # for 循环正常结束(未 return)时显式抛出,避免隐式返回 None
+        raise RuntimeError("查询音色详情失败: 重试耗尽")
 
     def create_voice(self, target_model: str, prefix: str, url: str,
                      language_hints: Optional[List[str]] = None,
@@ -159,13 +169,15 @@ class AliyunVoiceManagerClient:
                     )
                 logging.info("阿里云音色创建成功，voice_id: %s", voice_id)
                 return voice_id
-            except (ConnectionError, TimeoutError, OSError) as e:
+            except RETRYABLE_NETWORK_EXCEPTIONS as e:
                 if attempt < self.MAX_RETRIES - 1:
                     logging.warning("创建音色失败，第 %d 次重试: %s", attempt + 1, str(e))
                     time.sleep(self.RETRY_DELAY * (2 ** attempt))
                 else:
                     logging.exception("创建音色失败，已达到最大重试次数")
                     raise
+        # for 循环正常结束(未 return)时显式抛出,避免隐式返回 None
+        raise RuntimeError("创建音色失败: 重试耗尽")
 
     def update_voice(self, voice_id: str, url: str,
                     language_hints: Optional[List[str]] = None,
@@ -194,13 +206,15 @@ class AliyunVoiceManagerClient:
                     )
                 logging.info("阿里云音色更新成功，voice_id: %s", voice_id)
                 return True
-            except (ConnectionError, TimeoutError, OSError) as e:
+            except RETRYABLE_NETWORK_EXCEPTIONS as e:
                 if attempt < self.MAX_RETRIES - 1:
                     logging.warning("更新音色失败，第 %d 次重试: %s", attempt + 1, str(e))
                     time.sleep(self.RETRY_DELAY * (2 ** attempt))
                 else:
                     logging.exception("更新音色失败，已达到最大重试次数")
                     raise
+        # for 循环正常结束(未 return)时显式抛出,避免隐式返回 None
+        raise RuntimeError("更新音色失败: 重试耗尽")
 
     def delete_voice(self, voice_id: str) -> bool:
         """
@@ -216,25 +230,28 @@ class AliyunVoiceManagerClient:
                     self.service.delete_voice(voice_id=voice_id)
                 logging.info("阿里云音色删除成功，voice_id: %s", voice_id)
                 return True
-            except (ConnectionError, TimeoutError, OSError) as e:
+            except RETRYABLE_NETWORK_EXCEPTIONS as e:
                 if attempt < self.MAX_RETRIES - 1:
                     logging.warning("删除音色失败，第 %d 次重试: %s", attempt + 1, str(e))
                     time.sleep(self.RETRY_DELAY * (2 ** attempt))
                 else:
                     logging.exception("删除音色失败，已达到最大重试次数")
                     raise
+        # for 循环正常结束(未 return)时显式抛出,避免隐式返回 None
+        raise RuntimeError("删除音色失败: 重试耗尽")
 
-    def list_all_voices(self) -> list:
+    def list_all_voices(self, max_pages: int = 1000) -> list:
         """
         获取所有音色（自动翻页）
 
+        :param max_pages: 最大翻页数,防止异常情况下无限翻页(默认 1000)
         :return: 所有音色列表
         """
         all_voices = []
         page_index = 0
         page_size = 100
 
-        while True:
+        while page_index < max_pages:
             result = self.list_voices(prefix=None, page_index=page_index, page_size=page_size)
             voices = result.get("voices", [])
 
@@ -249,6 +266,8 @@ class AliyunVoiceManagerClient:
 
             page_index += 1
 
+        if page_index >= max_pages:
+            logging.warning("获取所有音色达到最大翻页数 %d,可能未获取完整", max_pages)
         logging.info("获取所有音色完成，共计: %d 个", len(all_voices))
         return all_voices
 

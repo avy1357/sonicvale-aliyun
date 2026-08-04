@@ -10,14 +10,14 @@ class TextCorrectorFinal:
     DEFAULT_BASE_WINDOW = 30  # 基础搜索窗口
     DEFAULT_EXTENDED_WINDOW = 80  # 扩展搜索窗口（匹配失败时使用）
 
-    def __init__(self, base_threshold: float = None, base_window: int = None):
+    def __init__(self, base_threshold: Optional[float] = None, base_window: int = None):
         """初始化文本校正器
-        
+
         Args:
             base_threshold: 基础相似度阈值，默认0.65
             base_window: 基础搜索窗口大小，默认30
         """
-        self.base_threshold = base_threshold or self.DEFAULT_BASE_THRESHOLD
+        self.base_threshold = base_threshold if base_threshold is not None else self.DEFAULT_BASE_THRESHOLD
         self.base_window = base_window or self.DEFAULT_BASE_WINDOW
         self.extended_window = self.DEFAULT_EXTENDED_WINDOW
 
@@ -217,7 +217,9 @@ class TextCorrectorFinal:
             corrected_sentences_for_item = []
             matched_indices_for_item = []  # 记录这个item匹配到的所有原文索引
 
-            logging.info("处理角色: %s (AI原文: '%s')", ai_item.get('role_name', '未知'), ai_text[:50] if ai_text else '')
+            logging.info("处理角色: %s (AI原文长度: %d)", ai_item.get('role_name', '未知'), len(ai_text) if ai_text else 0)
+            # 详细内容仅 DEBUG 级别输出,避免 INFO 日志泄露过多内容
+            logging.debug("AI原文: '%s'", ai_text[:50] if ai_text else '')
 
             for ai_sentence in ai_sentences:
                 # 首先尝试基础窗口搜索
@@ -237,10 +239,13 @@ class TextCorrectorFinal:
                     matched_indices_for_item.append(match_index)
                     used_original_indices.add(match_index)
                     current_original_index = match_index + 1
-                    logging.info("匹配成功 (相似度: %.2f): AI='%s' -> 原文='%s'", similarity, ai_sentence, original_match)
+                    # INFO 仅输出索引,DEBUG 输出具体内容
+                    logging.info("匹配成功 (索引: %d, 相似度: %.2f)", match_index, similarity)
+                    logging.debug("AI='%s' -> 原文='%s'", ai_sentence, original_match)
                 else:
                     corrected_sentences_for_item.append(ai_sentence)
-                    logging.warning("匹配失败 (最高相似度: %.2f)，保留AI原句: '%s'", similarity, ai_sentence)
+                    logging.warning("匹配失败 (最高相似度: %.2f),保留AI原句", similarity)
+                    logging.debug("保留AI原句: '%s'", ai_sentence)
 
             # 最终清理 - 保留原始格式（包括引号）
             corrected_text = self.clean_text(" ".join(corrected_sentences_for_item))
@@ -275,7 +280,9 @@ class TextCorrectorFinal:
                 # 插入遗漏的句子
                 missing_sentence = self.clean_text(original_sentences[orig_idx])
                 if missing_sentence:
-                    logging.info("插入遗漏句子 (位置%d): '%s'", orig_idx, missing_sentence)
+                    # INFO 仅输出索引,DEBUG 输出具体内容
+                    logging.info("插入遗漏句子 (位置%d)", orig_idx)
+                    logging.debug("插入遗漏句子内容: '%s'", missing_sentence)
                     final_data.append({
                         'role_name': '旁白',
                         'text_content': missing_sentence,
@@ -293,6 +300,8 @@ class TextCorrectorFinal:
         for item_idx, (item, matched_indices) in enumerate(corrected_data):
             if item_idx not in inserted_items:
                 final_data.append(item)
-                logging.warning("Item未匹配到原文，追加到末尾: %s", item.get('text_content', '')[:30])
+                # INFO 仅输出索引,DEBUG 输出具体内容
+                logging.warning("Item未匹配到原文,追加到末尾 (item_idx: %d)", item_idx)
+                logging.debug("追加item内容: %s", item.get('text_content', '')[:30])
 
         return final_data

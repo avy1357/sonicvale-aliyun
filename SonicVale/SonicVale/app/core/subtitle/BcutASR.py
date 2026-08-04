@@ -2,7 +2,6 @@ import json
 import logging
 import os
 import time
-from os import PathLike
 from typing import List, Optional, Union
 
 import requests
@@ -13,7 +12,8 @@ from .BaseASR import BaseASR
 
 __version__ = "0.0.3"
 
-API_BASE_URL = "https://member.bilibili.com/x/bcut/rubick-interface"
+# API URL 抽取到环境变量,便于测试与切换环境,保留默认值
+API_BASE_URL = os.getenv("BCUT_API_BASE_URL", "https://member.bilibili.com/x/bcut/rubick-interface")
 
 # 申请上传
 API_REQ_UPLOAD = API_BASE_URL + "/resource/create"
@@ -102,16 +102,28 @@ class BcutASR(BaseASR):
             start_range = clip * self.__per_size
             end_range = (clip + 1) * self.__per_size
             logging.info("开始上传分片%d: %d-%d", clip, start_range, end_range)
-            resp = self.session.put(
-                self.__upload_urls[clip],
-                data=self.file_binary[start_range:end_range],
-                headers=self.headers,
-                timeout=120
-            )
-            resp.raise_for_status()
-            etag = resp.headers.get("Etag")
-            self.__etags.append(etag)
-            logging.info("分片%d上传成功: %s", clip, etag)
+            # 单片上传失败重试 3 次,避免偶发网络抖动导致整体上传失败
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    resp = self.session.put(
+                        self.__upload_urls[clip],
+                        data=self.file_binary[start_range:end_range],
+                        headers=self.headers,
+                        timeout=120
+                    )
+                    resp.raise_for_status()
+                    etag = resp.headers.get("Etag")
+                    self.__etags.append(etag)
+                    logging.info("分片%d上传成功: %s", clip, etag)
+                    break
+                except (requests.exceptions.ConnectionError, requests.exceptions.Timeout,
+                        requests.exceptions.HTTPError, OSError) as e:
+                    if attempt < max_retries - 1:
+                        logging.warning("分片%d上传失败,第 %d 次重试: %s", clip, attempt + 1, e)
+                        time.sleep(1)
+                    else:
+                        raise
 
     def __commit_upload(self) -> None:
         """提交上传数据"""
@@ -161,6 +173,7 @@ class BcutASR(BaseASR):
         self.upload()
         self.create_task()
         # 轮询检查任务状态
+        task_resp = None
         for _ in range(self._max_poll_times):
             task_resp = self.result()
             state = task_resp.get("state")
@@ -180,12 +193,3 @@ class BcutASR(BaseASR):
 
     def _make_segments(self, resp_data: dict) -> list[ASRDataSeg]:
         return [ASRDataSeg(u['transcript'], u['start_time'], u['end_time']) for u in resp_data['utterances']]
-
-
-if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-    # Example usage
-    audio_file = r"test.mp3"
-    asr = BcutASR(audio_file)
-    asr_data = asr.run()
-    logging.info("%s", asr_data)

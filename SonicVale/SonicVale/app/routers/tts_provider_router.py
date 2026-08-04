@@ -15,6 +15,9 @@ router = APIRouter(prefix="/tts_providers", tags=["TTSProviders"])
 
 _SECRET_FIELDS = ("api_key", "x_api_key", "access_key_id", "access_key_secret")
 
+# 默认 TTS provider 的 ID(不允许删除)
+DEFAULT_TTS_PROVIDER_ID = 1
+
 
 def _mask_secrets(entity) -> dict:
     """返回脱敏后的字段字典,敏感凭证改用布尔标志(配合 ResponseDTO 的 has_* 字段)"""
@@ -56,7 +59,7 @@ def get_all_tts_providers(service: TTSProviderService = Depends(get_service)):
 
 
 # ------------------- 新增TTS供应商 -------------------
-@router.post("/", response_model=Res[TTSProviderCreateDTO],
+@router.post("/", response_model=Res[TTSProviderResponseDTO],
             summary="新增TTS供应商",
             description="新增TTS供应商信息")
 def create_tts_provider(dto: TTSProviderCreateDTO, service: TTSProviderService = Depends(get_service)):
@@ -68,12 +71,12 @@ def create_tts_provider(dto: TTSProviderCreateDTO, service: TTSProviderService =
 
     success = service.create_tts_provider(dto)
     if success:
-        # C6: 脱敏返回,避免响应中回显明文凭据
-        masked_data = dto.dict()
-        for field in _SECRET_FIELDS:
-            if masked_data.get(field):
-                masked_data[field] = "***"
-        return Res(data=masked_data, code=200, message="创建成功")
+        # 查询创建后的实体并脱敏返回,配合 ResponseDTO 的 has_* 字段
+        entity = service.get_tts_provider_by_name(dto.name)
+        if entity:
+            masked_data = _mask_secrets(entity)
+            return Res(data=masked_data, code=200, message="创建成功")
+        return Res(data=None, code=200, message="创建成功")
     else:
         return Res(data=None, code=400, message="创建失败")
 
@@ -84,7 +87,7 @@ def create_tts_provider(dto: TTSProviderCreateDTO, service: TTSProviderService =
             description="删除TTS供应商信息")
 def delete_tts_provider(tts_id: int, service: TTSProviderService = Depends(get_service)):
     # 不允许删除默认的index_tts (id=1)
-    if tts_id == 1:
+    if tts_id == DEFAULT_TTS_PROVIDER_ID:
         return Res(data=False, code=400, message="默认TTS供应商不可删除")
 
     success = service.delete_tts_provider(tts_id)
@@ -95,7 +98,7 @@ def delete_tts_provider(tts_id: int, service: TTSProviderService = Depends(get_s
 
 
 # ------------------- 修改TTS供应商 -------------------
-@router.put("/{tts_provider_id}", response_model=Res[TTSProviderCreateDTO],
+@router.put("/{tts_provider_id}", response_model=Res[TTSProviderResponseDTO],
             summary="修改TTS供应商",
             description="根据TTS供应商ID修改TTS供应商信息")
 def update_tts_provider(tts_provider_id: int, dto: TTSProviderCreateDTO, service: TTSProviderService = Depends(get_service)):
@@ -105,7 +108,7 @@ def update_tts_provider(tts_provider_id: int, dto: TTSProviderCreateDTO, service
     if not tts_provider:
         return Res(data=None, code=400, message="TTS供应商不存在")
 
-    success = service.update_tts_provider(tts_provider_id,dto.dict(exclude_unset=True))
+    success = service.update_tts_provider(tts_provider_id,dto.model_dump(exclude_unset=True))
     if success:
         # 返回更新后的实体(脱敏),而非入参 dto
         updated = service.get_tts_provider(tts_provider_id)
@@ -125,7 +128,7 @@ def test_tts_provider(dto: TTSProviderCreateDTO, service: TTSProviderService = D
         "[有]" if dto.api_key else "[空]",
         "[有]" if dto.x_api_key else "[空]",
     )
-    entity = TTSProviderEntity(**dto.dict())
+    entity = TTSProviderEntity(**dto.model_dump())
     success = service.test_tts_provider(entity)
     if success:
         return Res(data=None, code=200, message="测试成功")

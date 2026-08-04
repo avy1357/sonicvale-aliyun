@@ -14,9 +14,9 @@ class StrengthRepository:
     def __init__(self, db: Session):
         self.db = db
 
-    def get_by_id(self, id: int) -> Optional[StrengthPO]:
+    def get_by_id(self, record_id: int) -> Optional[StrengthPO]:
         """通过id获取情绪强弱"""
-        return self.db.query(StrengthPO).filter(StrengthPO.id == id).first()
+        return self.db.query(StrengthPO).filter(StrengthPO.id == record_id).first()
 
     def get_by_name(self, name: str) -> Optional[StrengthPO]:
         """通过名称获取情绪强弱"""
@@ -33,9 +33,9 @@ class StrengthRepository:
         self.db.refresh(strength)
         return strength
 
-    def update(self, id: int, data: dict) -> Optional[StrengthPO]:
+    def update(self, record_id: int, data: dict) -> Optional[StrengthPO]:
         """更新情绪强弱"""
-        strength = self.get_by_id(id)
+        strength = self.get_by_id(record_id)
         if not strength:
             return None
         for key, value in data.items():
@@ -46,9 +46,9 @@ class StrengthRepository:
         self.db.refresh(strength)
         return strength
 
-    def delete(self, id: int) -> bool:
+    def delete(self, record_id: int) -> bool:
         """删除情绪强弱"""
-        strength = self.get_by_id(id)
+        strength = self.get_by_id(record_id)
         if not strength:
             return False
         self.db.delete(strength)

@@ -27,7 +27,7 @@ export function deleteChapter(chapterId) {
 
 
 export function splitChapterByLLM(projectId, chapterId) {
-  return request.get(`/chapters/get-lines/${projectId}/${chapterId}`)
+  return request.post(`/chapters/get-lines/${projectId}/${chapterId}`)
 }
 
 
@@ -43,10 +43,8 @@ export function exportLLMPrompt(projectId, chapterId) {
 // 导入第三方 JSON（multipart/form-data，字段名 data）
 export function importThirdLines(projectId, chapterId, formData) {
   // POST /import-lines/{project_id}/{chapter_id}
-  // 注意：formData 已经是 FormData；不要再手动设置 boundary
-  return request.post(`/chapters/import-lines/${projectId}/${chapterId}`, formData, {
-    headers: { 'Content-Type': 'multipart/form-data' }
-  })
+  // 注意：不要手动设置 Content-Type,让 axios 根据 FormData 自动生成带 boundary 的头
+  return request.post(`/chapters/import-lines/${projectId}/${chapterId}`, formData)
 }
 
 // 智能匹配音色

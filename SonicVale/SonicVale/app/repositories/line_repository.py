@@ -78,11 +78,16 @@ class LineRepository:
         if not line_orders:
             return 0
 
+        from datetime import datetime, timezone
         from sqlalchemy import bindparam
         stmt = (
             update(LinePO)
             .where(LinePO.id == bindparam("id"))
-            .values(line_order=bindparam("line_order"))
+            .values(
+                line_order=bindparam("line_order"),
+                # 显式更新 updated_at,因为 Core 的 update() 不会触发 ORM 的 onupdate
+                updated_at=datetime.now(timezone.utc),
+            )
         )
         params = [{"id": it.id, "line_order": it.line_order} for it in line_orders]
         res = self.db.execute(stmt, params)  # executemany

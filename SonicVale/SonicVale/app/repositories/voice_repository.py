@@ -13,9 +13,9 @@ class VoiceRepository:
     def __init__(self, db: Session):
         self.db = db
 
-    def get_by_id(self, id: int) -> Optional[VoicePO]:
+    def get_by_id(self, record_id: int) -> Optional[VoicePO]:
         """根据 ID 查询音色"""
-        return self.db.get(VoicePO, id)
+        return self.db.get(VoicePO, record_id)
 
     def get_all(self, tts_provider_id: int) -> Sequence[VoicePO]:
         """获取tts下所有音色"""
@@ -53,7 +53,7 @@ class VoiceRepository:
         return voice
 
     def delete(self, voice_id: int) -> bool:
-        """删除项目"""
+        """删除音色"""
         voice = self.get_by_id(voice_id)
         if not voice:
             return False

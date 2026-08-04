@@ -1,4 +1,4 @@
-from typing import List, Optional, Sequence
+from typing import Optional, Sequence
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from app.models.po import LLMProviderPO
@@ -22,6 +22,10 @@ class LLMProviderRepository:
     def get_by_id(self, llm_provider_id: int) -> Optional[LLMProviderPO]:
         """根据 ID 查询LLM供应商"""
         po = self.db.get(LLMProviderPO, llm_provider_id)
+        if po is None:
+            return None
+        # 关键：解密前先 expunge,避免明文回写数据库
+        self.db.expunge(po)
         return decrypt_provider_fields(po, LLM_PROVIDER_SECRET_FIELDS)
 
     def get_all(self) -> Sequence[LLMProviderPO]:
@@ -40,6 +44,8 @@ class LLMProviderRepository:
         self.db.add(llm_provider_data)
         self.db.commit()
         self.db.refresh(llm_provider_data)
+        # 关键：解密前先 expunge,避免明文回写数据库
+        self.db.expunge(llm_provider_data)
         # 读出后解密,返回给上层明文
         decrypt_provider_fields(llm_provider_data, LLM_PROVIDER_SECRET_FIELDS)
         return llm_provider_data
@@ -58,6 +64,8 @@ class LLMProviderRepository:
                 setattr(llm_provider, key, value)
         self.db.commit()
         self.db.refresh(llm_provider)
+        # 关键：解密前先 expunge,避免明文回写数据库
+        self.db.expunge(llm_provider)
         decrypt_provider_fields(llm_provider, LLM_PROVIDER_SECRET_FIELDS)
         return llm_provider
 
@@ -74,10 +82,17 @@ class LLMProviderRepository:
         """根据名称查找LLM供应商"""
         stmt = select(LLMProviderPO).where(LLMProviderPO.name == name)
         po = self.db.execute(stmt).scalar_one_or_none()
+        if po is None:
+            return None
+        # 关键：解密前先 expunge,避免明文回写数据库
+        self.db.expunge(po)
         return decrypt_provider_fields(po, LLM_PROVIDER_SECRET_FIELDS)
 
     def search(self, keyword: str) -> Sequence[LLMProviderPO]:
         """模糊搜索"""
+        # 限制 keyword 长度,防止性能问题
+        if keyword and len(keyword) > 100:
+            keyword = keyword[:100]
         # 转义 LIKE 通配符,防止注入
         escaped_keyword = keyword.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
         stmt = select(LLMProviderPO).where(LLMProviderPO.name.ilike(f"%{escaped_keyword}%", escape='\\'))
