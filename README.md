@@ -72,7 +72,6 @@ SonicVale/
 │   │   ├── services/                 # 核心业务逻辑
 │   │   ├── routers/                  # FastAPI 路由接口
 │   │   └── main.py                   # 后端启动入口
-│   ├── tests/                        # 测试
 │   └── requirements.txt              # Python 依赖
 ├── sonicvale-front/                  # 前端 (Vue 3 + Element Plus + Tauri)
 │   ├── src/
@@ -125,7 +124,7 @@ npm run start       # 开发模式（tauri dev）
 打包构建：
 
 ```bash
-npm run electron-build   # 输出 NSIS 安装包（tauri build）
+npm run tauri build   # 输出 NSIS 安装包
 ```
 
 ## 后端 API
@@ -143,13 +142,14 @@ npm run electron-build   # 输出 NSIS 安装包（tauri build）
 | 音色管理 | `/voices` | 音色 CRUD |
 | 情绪管理 | `/emotions` | 情绪类型管理 |
 | 强度管理 | `/strengths` | 情绪强度管理 |
-| 多情绪音色 | `/multi-emotion-voices` | 多情绪音色绑定 |
-| LLM 配置 | `/llm-provider` | LLM 服务配置 |
-| TTS 配置 | `/tts-provider` | TTS 服务配置 |
+| 多情绪音色 | `/multi_emotion_voices` | 多情绪音色绑定 |
+| LLM 配置 | `/llm_providers` | LLM 服务配置 |
+| TTS 配置 | `/tts_providers` | TTS 服务配置 |
 | 提示词管理 | `/prompts` | 提示词 CRUD |
-| 语音克隆 | `/voice-clone` | 语音克隆管理 |
-| 火山音色 | `/volcano-voice` | 火山引擎音色同步 |
-| 阿里云语音克隆 | `/aliyun-voice-clone` | 阿里云语音克隆 |
+| 语音克隆 | `/voice-clones` | 语音克隆管理 |
+| 火山音色 | `/volcano-voices` | 火山引擎音色同步 |
+| 阿里云语音克隆 | `/aliyun-voices` | 阿里云语音克隆 |
+| 阿里云音色管理 | `/aliyun-voice-manager` | 阿里云音色同步 |
 
 ## 二次开发说明
 
@@ -163,9 +163,12 @@ npm run electron-build   # 输出 NSIS 安装包（tauri build）
 
 并附上原项目仓库链接。
 
-### 商业使用限制
+### 商业使用与双授权
 
-未获得书面商业授权前，任何基于本项目的衍生作品不得用于商业用途或提供商业服务。
+本项目采用 **双授权（Dual Licensing）** 模式：
+
+- **开源使用**：依据 AGPL-3.0，任何人可自由使用、修改、分发本项目，但衍生作品必须以 AGPL-3.0 开源，且通过网络提供服务者也必须公开源代码。
+- **商业授权**：如需在闭源或商业场景下使用本项目而不公开源代码，请联系作者获取商业授权。
 
 ## 许可证
 
