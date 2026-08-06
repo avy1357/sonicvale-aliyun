@@ -136,12 +136,12 @@ class AliyunTTSClient:
 
         if audio is None:
             request_id = synthesizer.get_last_request_id()
-            raise Exception(f"阿里云 CosyVoice 返回空数据，request_id: {request_id}")
+            raise TTSError(f"阿里云 CosyVoice 返回空数据，request_id: {request_id}")
 
         audio_bytes = audio if isinstance(audio, bytes) else bytes(audio)
 
         if len(audio_bytes) < 100:
-            raise Exception(f"音频数据无效，大小: {len(audio_bytes)} 字节")
+            raise TTSError(f"音频数据无效，大小: {len(audio_bytes)} 字节")
 
         logging.info("阿里云 CosyVoice 合成成功，音色: %s, 模型: %s, 音频大小: %d 字节",
                      voice, self.model, len(audio_bytes))

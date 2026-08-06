@@ -47,7 +47,7 @@
           </el-table-column>
           <el-table-column label="API Key" min-width="180">
             <template #default="{ row }">
-              <span class="api-key">{{ maskKey(row.api_key) }}</span>
+              <span class="api-key">{{ row.has_api_key ? '••••••••' : '（未设置）' }}</span>
             </template>
           </el-table-column>
 
@@ -116,7 +116,7 @@
 
           <el-table-column label="API Key" min-width="180">
             <template #default="{ row }">
-              <span class="api-key">{{ maskKey(row.api_key) }}</span>
+              <span class="api-key">{{ row.has_api_key ? '••••••••' : '（未设置）' }}</span>
             </template>
           </el-table-column>
 

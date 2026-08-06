@@ -54,10 +54,11 @@ async def tts_worker(app: FastAPI):
     ex = app.state.tts_executor
     while True:
         project_id, dto = await q.get()
-        db = SessionLocal()
+        db = None
         # 预初始化,防止异常处理时 NameError
         line_service = None
         try:
+            db = SessionLocal()
             line_service = get_line_service(db)
             role_service = get_role_service(db)
             voice_service = get_voice_service(db)
@@ -99,9 +100,6 @@ async def tts_worker(app: FastAPI):
             if strength is None:
                 raise ValueError(f"强度不存在(id={dto.strength_id})")
             # 拼接
-            # emo_text = f"{strength.name}的{emotion.name} "
-            # if emotion.name is "解说":
-            #     emo_text = None
             emo_text = None
             emo_vector = emotion_text_to_vector(emotion.name, strength.name)
 
@@ -129,7 +127,11 @@ async def tts_worker(app: FastAPI):
                 timeout=TTS_TIMEOUT_SECONDS
             )
 
-            line_service.update_line(dto.id, {"status": "done"})
+            # 音频已生成成功,更新状态为 done;若更新失败不回退为 failed(音频已落盘)
+            try:
+                line_service.update_line(dto.id, {"status": "done"})
+            except Exception as inner:
+                logging.warning("[tts_worker] 音频已生成但更新状态失败: %s", inner)
             # 在循环开始时计算一次 progress 快照,避免多次 q.qsize() 调用结果不一致
             progress_snapshot = q.qsize()
             await manager.broadcast({
@@ -184,5 +186,6 @@ async def tts_worker(app: FastAPI):
 
         finally:
 
-            db.close()
+            if db is not None:
+                db.close()
             q.task_done()

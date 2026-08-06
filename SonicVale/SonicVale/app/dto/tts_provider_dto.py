@@ -5,7 +5,7 @@ from typing import Optional
 
 
 class TTSProviderCreateDTO(BaseModel):
-    name: Optional[str] = None
+    name: str  # 必填,与 PO 的 nullable=False 一致
     id: Optional[int] = None
     provider_type: Optional[str] = Field(default="index_tts", pattern=r"^(index_tts|volcano|aliyun)$")  # index_tts / volcano / aliyun
     api_base_url: Optional[str] = None

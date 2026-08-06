@@ -2,22 +2,19 @@ import logging
 import os
 import re
 import shutil
-import threading
 from typing import List, Sequence
 
 from app.core.config import getConfigPath
 from app.core.text_correct_engine import TextCorrectorFinal
-from app.core.tts_engine import TTSEngine
-from app.db.database import SessionLocal
 from app.dto.line_dto import LineInitDTO
 from app.entity.chapter_entity import ChapterEntity
 from app.entity.line_entity import LineEntity
-from app.models.po import ChapterPO, RolePO, LinePO
+from app.models.po import ChapterPO, LinePO
 
 from app.repositories.chapter_repository import ChapterRepository
 from app.repositories.line_repository import LineRepository
 
-from app.core.prompts import get_context2lines_prompt, get_add_smart_role_and_voice
+from app.core.prompts import get_add_smart_role_and_voice
 from app.repositories.llm_provider_repository import LLMProviderRepository
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.role_repository import RoleRepository
@@ -82,16 +79,18 @@ class ChapterService:
         """
         title = data.get("title")
         project_id = data.get("project_id")
-        if title and project_id is not None:
-            existing = self.repository.get_by_name(title, project_id)
-            if existing and existing.id != chapter_id:
-                return False
         po = self.repository.get_by_id(chapter_id)
         if po is None:
             return False
         # 防止改变project_id
         if project_id is not None and po.project_id != project_id:
             return False
+        # 同名检查:如果传了 title,使用传入的 project_id 或现有章节的 project_id
+        if title:
+            check_project_id = project_id if project_id is not None else po.project_id
+            existing = self.repository.get_by_name(title, check_project_id)
+            if existing and existing.id != chapter_id:
+                return False
         self.repository.update(chapter_id, data)
         return True
 
@@ -402,6 +401,9 @@ class ChapterService:
             prompt = get_add_smart_role_and_voice(content,role_names, voice_names)
             result = llm.generate_smart_text(prompt)
             parse_data = llm.save_load_json(result)
+            if not parse_data or not isinstance(parse_data, list):
+                logging.warning("LLM 返回结果解析为空或格式不正确")
+                return False, []
             # 获取项目所有音色
             voice_repository = VoiceRepository(db)
             voices = voice_repository.get_all(project.tts_provider_id)
@@ -413,12 +415,20 @@ class ChapterService:
             role_repository = RoleRepository(db)
             res = []
             for item in parse_data:
-                role = role_repository.get_by_name( item["role_name"],project.id)
+                role_name = item.get("role_name")
+                voice_name = item.get("voice_name")
+                if not role_name:
+                    continue
+                role = role_repository.get_by_name(role_name, project.id)
                 if role:
-                    if item["voice_name"]:
-                        logging.info("更新角色音色：%s %s", item["role_name"], item["voice_name"])
-                        role_repository.update(role.id, {"default_voice_id": voice_id_map.get(item["voice_name"])})
-                        res.append({"role_name": item["role_name"], "voice_name": item["voice_name"]})
+                    if voice_name:
+                        voice_id = voice_id_map.get(voice_name)
+                        if voice_id is not None:
+                            logging.info("更新角色音色：%s %s", role_name, voice_name)
+                            role_repository.update(role.id, {"default_voice_id": voice_id})
+                            res.append({"role_name": role_name, "voice_name": voice_name})
+                        else:
+                            logging.warning("音色 '%s' 不在本地音色列表中,跳过", voice_name)
 
             return True,res
         except Exception as e:

@@ -6,7 +6,7 @@ import requests
 import time
 from typing import Optional
 
-from app.core.exceptions import RETRYABLE_NETWORK_EXCEPTIONS
+from app.core.exceptions import RETRYABLE_NETWORK_EXCEPTIONS, VolcanoAPIError
 
 
 class VolcanoVoiceCloneClient:
@@ -62,6 +62,13 @@ class VolcanoVoiceCloneClient:
     def __repr__(self) -> str:
         # 隐藏 x_api_key,避免日志/调试输出泄露凭据
         return f"VolcanoVoiceCloneClient(resource_id={self.resource_id!r}, model_type={self.model_type})"
+
+    def close(self):
+        """关闭 requests session,释放连接池资源"""
+        try:
+            self.session.close()
+        except Exception:
+            pass
     
     def _build_headers(self) -> dict:
         """构建请求头"""
@@ -187,7 +194,7 @@ class VolcanoVoiceCloneClient:
                 status_code = result.get("BaseResp", {}).get("StatusCode", -1)
                 if status_code != 0:
                     status_msg = result.get("BaseResp", {}).get("StatusMessage", "未知错误")
-                    raise Exception(f"查询状态失败: {status_code} - {status_msg}")
+                    raise VolcanoAPIError(f"查询状态失败: {status_code} - {status_msg}")
                 
                 return result
                 
@@ -221,9 +228,9 @@ class VolcanoVoiceCloneClient:
                 logging.info("声音复刻训练成功，speaker_id: %s", speaker_id)
                 return result
             elif status == 3:  # Failed
-                raise Exception(f"声音复刻训练失败，speaker_id: {speaker_id}")
+                raise VolcanoAPIError(f"声音复刻训练失败，speaker_id: {speaker_id}")
             
             logging.info("声音复刻训练中，speaker_id: %s，等待 %d 秒后重试...", speaker_id, poll_interval)
             time.sleep(poll_interval)
         
-        raise Exception(f"声音复刻训练超时（{max_wait_seconds}秒），speaker_id: {speaker_id}")
+        raise VolcanoAPIError(f"声音复刻训练超时（{max_wait_seconds}秒），speaker_id: {speaker_id}")

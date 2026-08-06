@@ -7,7 +7,7 @@ from typing import Optional
 class MultiEmotionVoiceCreateDTO(BaseModel):
     emotion_id: int
     voice_id: int
-    strength_id: int
+    strength_id: Optional[int] = None
     id: Optional[int] = None
     reference_path: Optional[str] = None
 
@@ -16,7 +16,7 @@ class MultiEmotionVoiceCreateDTO(BaseModel):
 class MultiEmotionVoiceResponseDTO(BaseModel):
     emotion_id: int
     voice_id: int
-    strength_id: int
+    strength_id: Optional[int] = None
     id: Optional[int] = None
     reference_path: Optional[str] = None
     created_at: Optional[datetime] = None

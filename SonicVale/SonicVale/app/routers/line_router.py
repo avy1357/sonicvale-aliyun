@@ -11,7 +11,7 @@ from app.core.path_security import assert_path_not_system_critical, validate_pat
 from app.core.response import Res
 from app.core.ws_manager import manager
 from app.db.database import get_db, SessionLocal
-from app.dto.line_dto import LineResponseDTO, LineCreateDTO, LineOrderDTO, LineAudioProcessDTO
+from app.dto.line_dto import LineResponseDTO, LineCreateDTO, LineOrderDTO, LineAudioProcessDTO, LineAudioPathUpdateDTO
 from app.entity.line_entity import LineEntity
 from app.repositories.chapter_repository import ChapterRepository
 from app.repositories.llm_provider_repository import LLMProviderRepository
@@ -64,7 +64,10 @@ def create_line(project_id:int,dto: LineCreateDTO, line_service: LineService = D
                     chapter_service : ChapterService = Depends(get_chapter_service)):
     """创建台词"""
     try:
-        # DTO → Entity
+        # 校验 chapter_id 必填
+        if dto.chapter_id is None:
+            return Res(data=None, code=400, message="chapter_id 不能为空")
+        # DTO -> Entity
         entity = LineEntity(**dto.model_dump())
         # 判断project_id是否存在
         project = project_service.get_project(project_id)
@@ -181,7 +184,7 @@ def batch_update_line_order(
 @router.put("/{line_id}/audio_path", response_model=Res[bool])
 def update_line_audio_path(
         line_id: int,
-    dto: LineCreateDTO,  # 从 body 读取台词 DTO
+    dto: LineAudioPathUpdateDTO,  # 使用专用 DTO,包含 audio_path 字段
     line_service: LineService = Depends(get_line_service),
 ):
     res = line_service.update_audio_path(line_id,dto)
@@ -204,7 +207,10 @@ async def generate_audio(request: Request, project_id: int, chapter_id: int, dto
     chapter = chapter_service.get_chapter(line.chapter_id)
     if chapter is None or chapter.project_id != project_id:
         return Res(data=None, code=403, message="无权操作")
-    q = request.app.state.tts_queue  # 👈 永远拿到已初始化的同一份队列
+    # 校验 tts_queue 已初始化
+    if not hasattr(request.app.state, 'tts_queue'):
+        return Res(data=None, code=500, message="TTS 队列未初始化")
+    q = request.app.state.tts_queue  # 永远拿到已初始化的同一份队列
     if q.full():
         # 可选：带上 Retry-After 头
         raise HTTPException(status_code=429, detail="队列已满，请稍后重试")

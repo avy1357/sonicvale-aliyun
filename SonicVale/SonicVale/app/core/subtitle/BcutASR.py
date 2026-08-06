@@ -52,6 +52,13 @@ class BcutASR(BaseASR):
 
         self.__download_url: Optional[str] = None
 
+    def close(self):
+        """关闭 requests session,释放连接池资源"""
+        try:
+            self.session.close()
+        except Exception:
+            pass
+
     def upload(self) -> None:
         """申请上传"""
         if not self.file_binary:
@@ -80,18 +87,23 @@ class BcutASR(BaseASR):
         )
         resp.raise_for_status()
         resp = resp.json()
-        resp_data = resp["data"]
+        resp_data = resp.get("data")
+        if not resp_data or not isinstance(resp_data, dict):
+            raise RuntimeError(f"BCut ASR 申请上传返回异常: {resp}")
 
-        self.__in_boss_key = resp_data["in_boss_key"]
-        self.__resource_id = resp_data["resource_id"]
-        self.__upload_id = resp_data["upload_id"]
-        self.__upload_urls = resp_data["upload_urls"]
-        self.__per_size = resp_data["per_size"]
-        self.__clips = len(resp_data["upload_urls"])
+        self.__in_boss_key = resp_data.get("in_boss_key")
+        self.__resource_id = resp_data.get("resource_id")
+        self.__upload_id = resp_data.get("upload_id")
+        self.__upload_urls = resp_data.get("upload_urls", [])
+        self.__per_size = resp_data.get("per_size")
+        self.__clips = len(self.__upload_urls)
+
+        if not self.__in_boss_key or not self.__upload_urls:
+            raise RuntimeError("BCut ASR 申请上传返回数据不完整")
 
         logging.info(
             "申请上传成功, 总计大小%dKB, %d分片, 分片大小%dKB: %s",
-            resp_data['size'] // 1024, self.__clips, resp_data['per_size'] // 1024, self.__in_boss_key
+            resp_data.get('size', 0) // 1024, self.__clips, (self.__per_size or 0) // 1024, self.__in_boss_key
         )
         self.__upload_part()
         self.__commit_upload()
@@ -114,6 +126,8 @@ class BcutASR(BaseASR):
                     )
                     resp.raise_for_status()
                     etag = resp.headers.get("Etag")
+                    if etag is None:
+                        raise ValueError(f"分片{clip}上传响应缺少 Etag 头")
                     self.__etags.append(etag)
                     logging.info("分片%d上传成功: %s", clip, etag)
                     break

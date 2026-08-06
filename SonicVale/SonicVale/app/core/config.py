@@ -1,5 +1,8 @@
 import os
 import sys
+import logging
+
+logger = logging.getLogger(__name__)
 # 得到默认配置文件
 def getConfigPath():
     # 用户 目录下SonicVale目录
@@ -19,8 +22,8 @@ def getConfigPath():
                         ["icacls", user_dir, "/inheritance:r", "/grant:r", f"{username}:(OI)(CI)F"],
                         capture_output=True, check=False
                     )
-            except Exception:
-                pass  # 权限设置失败不阻塞程序启动
+            except Exception as e:
+                logger.warning("icacls 设置目录权限失败: %s", e)
 
     # 返回 config.json 路径（目录已保证存在）
     return user_dir

@@ -307,7 +307,7 @@ const loadClones = async () => {
     const res = await queryAliyunVoiceList(currentTtsId.value, aliyunPage.value - 1, aliyunPageSize.value)
     if (res.code === 200 && res.data) {
       cloneList.value = res.data.voices || []
-      aliyunTotal.value = res.data.page_count || 0
+      aliyunTotal.value = res.data.total || 0
     } else {
       cloneList.value = []
       aliyunTotal.value = 0

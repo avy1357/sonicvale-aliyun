@@ -209,7 +209,7 @@ function openDialog(row) {
   if (row) {
     form.value = { ...row }
   } else {
-    form.value = { id: null, name: "", description: "", content: "" }
+    form.value = { id: null, name: "", description: "", content: "", task: "" }
   }
   dialogVisible.value = true
 }

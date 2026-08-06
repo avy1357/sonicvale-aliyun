@@ -35,6 +35,13 @@ class VolcanoVoiceManagerClient:
         # 隐藏 access_key_id/access_key_secret,避免日志/调试输出泄露凭据
         return f"VolcanoVoiceManagerClient(appid={self.appid!r})"
 
+    def close(self):
+        """关闭 requests session,释放连接池资源"""
+        try:
+            self.session.close()
+        except Exception:
+            pass
+
     def _sign_request(self, method: str, action: str, body: str) -> dict:
         now = datetime.datetime.now(datetime.timezone.utc)
         x_date = now.strftime("%Y%m%dT%H%M%SZ")

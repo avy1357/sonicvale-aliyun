@@ -321,12 +321,8 @@ class LineService:
 
     # 将角色role_id下所有台词的role_id都置位空
     def clear_role_id(self, role_id: int):
-        # 注意:此处循环逐条 update 在大数据量下性能较差
-        # 后续可考虑改为 repository 批量 update 以提升性能
-        # 先获取role_id下所有台词实体
-        pos = self.repository.get_lines_by_role_id(role_id)
-        for po in pos:
-            self.repository.update(po.id, {"role_id": None})
+        # 使用批量更新,不单独 commit,由调用方统一提交事务
+        self.repository.clear_role_id_batch(role_id)
 
     def batch_update_line_order(self,line_orders:List[LineOrderDTO]):
         # 改用 repository 的批量更新方法,避免逐条 commit 的性能问题
@@ -636,10 +632,9 @@ class LineService:
     def process_audio(self, line_id, dto:LineAudioProcessDTO):
         line = self.get_line(line_id)
         if line:
-        #     读取音频文件
-        #     audio_file =self.process_audio_ffmpeg(line.audio_path, dto.speed, dto.volume,dto.start_ms,dto.end_ms)
-        # 删除拼接
-        #     audio_file = self.process_audio_ffmpeg_cut(line.audio_path, dto.speed, dto.volume, dto.start_ms, dto.end_ms, dto.tail_silence_sec,dto.current_ms)
+            if not line.audio_path:
+                logging.warning("[process_audio] 台词 %s 无音频路径", line_id)
+                return False
             # 安全校验:校验音频路径
             try:
                 safe_path = validate_path_within_root(line.audio_path, getConfigPath())
@@ -864,6 +859,9 @@ class LineService:
         # 获取台词
         line = self.get_line(line_id)
         if line:
+            if not line.audio_path:
+                logging.warning("[generate_subtitle] 台词 %s 无音频路径", line_id)
+                return None
             # 将音频文件路径的后缀改为.srt
             dto.subtitle_path = os.path.splitext(dto.subtitle_path)[0] + ".srt"
             subtitle_engine.generate_subtitle(line.audio_path,dto.subtitle_path)

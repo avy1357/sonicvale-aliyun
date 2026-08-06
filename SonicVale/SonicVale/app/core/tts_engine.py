@@ -153,5 +153,5 @@ class TTSEngine:
                 return resp.json()
         except requests.exceptions.RequestException as e:
             raise TTSRequestError(f"请求失败: {str(e)}")
-        except Exception as e:
+        except (OSError, IOError, ValueError, KeyError) as e:
             raise TTSError(f"上传异常: {str(e)}")

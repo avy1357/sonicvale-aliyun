@@ -1607,8 +1607,13 @@ async function loadRoles() {
 }
 
 async function loadVoices() {
-    // 默认 TTS = 1
-    const res = await voiceAPI.getVoicesByTTS()
+    // 使用项目配置的 TTS provider ID,而非硬编码默认值
+    const ttsId = project.value?.ttsProviderId ?? project.value?.tts_provider_id
+    if (!ttsId) {
+        voicesOptions.value = []
+        return
+    }
+    const res = await voiceAPI.getVoicesByTTS(ttsId)
     voicesOptions.value = res?.code === 200 ? (res.data || []) : []
 }
 
@@ -1662,7 +1667,9 @@ onMounted(async () => {
     restoreLastChapter() // 恢复上次章节
     scrollToActiveChapter() // 定位到选中的章节
     await loadLines()
-    await loadChapterDetail(activeChapterId.value)
+    if (activeChapterId.value) {
+        await loadChapterDetail(activeChapterId.value)
+    }
     loadEnums() // 合并自原 2517 行的 onMounted,加载枚举数据
     // —— WebSocket：恢复历史队列并连接
     restoreQueue()
@@ -2397,7 +2404,11 @@ function playVoice(voiceId) {
 const audioVer = ref(new Map())
 
 const getVer = (id) => audioVer.value.get(id) || 0
-const bumpVer = (id) => audioVer.value.set(id, getVer(id) + 1)
+const bumpVer = (id) => {
+    const m = new Map(audioVer.value)
+    m.set(id, (m.get(id) || 0) + 1)
+    audioVer.value = m
+}
 
 // 生成给 WaveCellPro 用的 key（强制重建）与 src（带 ?v= 反缓存）
 function waveKey(row) {
@@ -2627,7 +2638,7 @@ const filterSelectRef = ref(null)
 function handleTagChange() {
     // 等下一个 tick 再关闭，不然选中状态可能丢失
     setTimeout(() => {
-        filterSelectRef.value.blur()
+        filterSelectRef.value?.blur()
     }, 0)
 }
 
@@ -3394,7 +3405,12 @@ function updateTreeHeight() {
  */
 function saveLastChapter() {
     const key = 'lastChapterMap';
-    let map = JSON.parse(localStorage.getItem(key) || '{}');
+    let map;
+    try {
+        map = JSON.parse(localStorage.getItem(key) || '{}');
+    } catch {
+        map = {}
+    }
     // 校验反序列化结果必须是对象,避免被污染为其他类型
     if (typeof map !== 'object' || map === null || Array.isArray(map)) {
         map = {}
@@ -3416,7 +3432,12 @@ function scrollToActiveChapter() {
 }
 function restoreLastChapter() {
     const key = 'lastChapterMap';
-    let map = JSON.parse(localStorage.getItem(key) || '{}');
+    let map;
+    try {
+        map = JSON.parse(localStorage.getItem(key) || '{}');
+    } catch {
+        map = {}
+    }
     // 校验反序列化结果必须是对象,避免被污染为其他类型
     if (typeof map !== 'object' || map === null || Array.isArray(map)) {
         map = {}

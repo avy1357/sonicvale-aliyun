@@ -38,7 +38,7 @@
 
 
       <!-- <el-switch v-model="regionMode" active-text="标注" inactive-text="浏览" /> -->
-      <el-button size="small" @click="makeRegion" :disabled="hasRegion">删除区间选择</el-button>
+      <el-button size="small" @click="makeRegion" :disabled="hasRegion">创建区间</el-button>
       <!-- <el-button size="small" @click="loopRegion" :disabled="!hasRegion">循环区间</el-button> -->
       <el-button size="small" @click="clearRegion" :disabled="!hasRegion">清除区间</el-button>
 

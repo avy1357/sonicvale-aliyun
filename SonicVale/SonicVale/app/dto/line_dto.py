@@ -25,7 +25,7 @@ class LineAudioProcessDTO(BaseModel):
     current_ms: Optional[int] = None
 
 class LineCreateDTO(BaseModel):
-    chapter_id: int
+    chapter_id: Optional[int] = None
     role_id:Optional[int] = None
     voice_id : Optional[int] = None
     line_order: Optional[int] = None
@@ -36,6 +36,11 @@ class LineCreateDTO(BaseModel):
     strength_id: Optional[int] = None
     instruction: Optional[str] = None  # 语音风格指令（覆盖角色默认）
     # 安全:创建 DTO 不暴露 status/is_done/audio_path/subtitle_path,这些应由系统内部管理
+
+class LineAudioPathUpdateDTO(BaseModel):
+    """更新台词音频路径的专用 DTO"""
+    audio_path: str
+
 
 class LineResponseDTO(BaseModel):
     chapter_id: int

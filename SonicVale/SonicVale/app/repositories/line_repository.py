@@ -73,6 +73,12 @@ class LineRepository:
     def get_lines_by_role_id(self, role_id: int):
         return self.db.execute(select(LinePO).where(LinePO.role_id == role_id)).scalars().all()
 
+    def clear_role_id_batch(self, role_id: int) -> int:
+        """批量清空指定角色下所有台词的 role_id(不单独 commit,由调用方统一提交事务)"""
+        stmt = update(LinePO).where(LinePO.role_id == role_id).values(role_id=None)
+        result = self.db.execute(stmt)
+        return result.rowcount if result.rowcount not in (None, -1) else 0
+
     def batch_update_line_order(self, line_orders: Sequence[LineOrderDTO]) -> int:
         """批量更新台词的顺序"""
         if not line_orders:

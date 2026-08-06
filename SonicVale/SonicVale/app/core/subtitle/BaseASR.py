@@ -98,5 +98,9 @@ class BaseASR:
         """ Run the ASR service and return the response data. """
         raise NotImplementedError("_run method must be implemented in subclass")
 
+    def close(self):
+        """释放资源,子类可 override 以关闭 session 等资源"""
+        pass
+
 
 
